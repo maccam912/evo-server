@@ -132,7 +132,61 @@ function formatGenome(dna) {
     }).join(' ');
 }
 
+// Toggle stats panel
+function toggleStatsPanel() {
+    const panel = document.getElementById('stats-panel');
+    if (panel) {
+        panel.classList.toggle('collapsed');
+    }
+}
+
+// Restart server
+function restartServer() {
+    if (confirm('Are you sure you want to restart the server? This will disconnect all clients.')) {
+        // Send restart command to server
+        fetch('/api/restart', {
+            method: 'POST'
+        }).then(response => {
+            if (response.ok) {
+                alert('Server restart initiated. The page will reload in a few seconds.');
+                // Reload the page after a delay to allow the server to restart
+                setTimeout(() => {
+                    window.location.reload();
+                }, 3000);
+            } else {
+                alert('Failed to restart server.');
+            }
+        }).catch(error => {
+            console.error('Error restarting server:', error);
+            alert('Error restarting server.');
+        });
+    }
+}
+
+// Initialize UI event listeners
+function initializeUI() {
+    // Set up toggle panel button
+    const toggleButton = document.getElementById('toggle-panel');
+    if (toggleButton) {
+        toggleButton.addEventListener('click', toggleStatsPanel);
+    }
+
+    // Set up restart server button
+    const restartButton = document.getElementById('restart-server');
+    if (restartButton) {
+        restartButton.addEventListener('click', restartServer);
+    }
+}
+
+// Initialize UI when DOM is loaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeUI);
+} else {
+    initializeUI();
+}
+
 // Export functions
 window.updateUI = updateUI;
 window.showCreatureInspector = showCreatureInspector;
 window.hideCreatureInspector = hideCreatureInspector;
+window.toggleStatsPanel = toggleStatsPanel;

@@ -64,41 +64,52 @@ impl SimulationState {
                     self.try_eat(id, config);
                 }
                 Action::MoveUp | Action::MoveDown | Action::MoveLeft | Action::MoveRight => {
-                    if let Some(creature) = self.creatures.get_mut(&id) {
-                        if creature.consume_energy(config.creature.energy_cost_move) {
-                            let (dx, dy) = action.to_delta();
-                            let new_x = (x as i32 + dx).max(0).min(self.world.width() as i32 - 1) as usize;
-                            let new_y = (y as i32 + dy).max(0).min(self.world.height() as i32 - 1) as usize;
+                    // Calculate target position
+                    let (dx, dy) = action.to_delta();
+                    let new_x = (x as i32 + dx).max(0).min(self.world.width() as i32 - 1) as usize;
+                    let new_y = (y as i32 + dy).max(0).min(self.world.height() as i32 - 1) as usize;
 
-                            // Check if there's a creature at the target position
-                            if let Some(target_creature_id) = self.creature_at(new_x, new_y) {
-                                // Attack the creature instead of moving
-                                drop(creature);
-                                if let Some(target) = self.creatures.get_mut(&target_creature_id) {
-                                    target.metabolism.take_damage(config.combat.damage_per_attack);
+                    // Check if there's a creature at the target position (before borrowing)
+                    let target_creature_id = self.creature_at(new_x, new_y);
 
-                                    // Record attack direction for sensors
-                                    let attack_dir = match action {
-                                        Action::MoveUp => Direction::Down,    // Attacked from below
-                                        Action::MoveDown => Direction::Up,    // Attacked from above
-                                        Action::MoveLeft => Direction::Right, // Attacked from right
-                                        Action::MoveRight => Direction::Left, // Attacked from left
-                                        _ => unreachable!(),
-                                    };
-                                    attacks_this_tick.entry(target_creature_id).or_insert_with(Vec::new).push(attack_dir);
-                                }
-                            } else {
-                                // No creature, check if we can move there
-                                if let Some(cell) = self.world.get(new_x, new_y) {
-                                    if cell.is_empty() || cell.is_food() {
-                                        // Update spatial index
-                                        self.update_creature_position(id, x, y, new_x, new_y);
+                    // Try to consume energy for the move
+                    let has_energy = if let Some(creature) = self.creatures.get_mut(&id) {
+                        creature.consume_energy(config.creature.energy_cost_move)
+                    } else {
+                        false
+                    };
 
+                    if has_energy {
+                        if let Some(target_id) = target_creature_id {
+                            // Attack the creature instead of moving
+                            if let Some(target) = self.creatures.get_mut(&target_id) {
+                                target.metabolism.take_damage(config.combat.damage_per_attack);
+
+                                // Record attack direction for sensors
+                                let attack_dir = match action {
+                                    Action::MoveUp => Direction::Down,    // Attacked from below
+                                    Action::MoveDown => Direction::Up,    // Attacked from above
+                                    Action::MoveLeft => Direction::Right, // Attacked from right
+                                    Action::MoveRight => Direction::Left, // Attacked from left
+                                    _ => unreachable!(),
+                                };
+                                attacks_this_tick.entry(target_id).or_insert_with(Vec::new).push(attack_dir);
+                            }
+                        } else {
+                            // No creature, check if we can move there
+                            if let Some(cell) = self.world.get(new_x, new_y) {
+                                if cell.is_empty() || cell.is_food() {
+                                    // Update spatial index
+                                    self.update_creature_position(id, x, y, new_x, new_y);
+
+                                    // Move the creature
+                                    if let Some(creature) = self.creatures.get_mut(&id) {
                                         creature.x = new_x;
                                         creature.y = new_y;
-                                        drop(creature);
-                                        self.try_eat(id, config);
                                     }
+
+                                    // Try to eat at new position
+                                    self.try_eat(id, config);
                                 }
                             }
                         }
@@ -158,7 +169,7 @@ impl SimulationState {
             .map(|(id, c)| (*id, c.x, c.y, c.energy()))
             .collect();
 
-        for (dead_id, x, y, remaining_energy) in dead_creatures {
+        for (_dead_id, x, y, remaining_energy) in dead_creatures {
             // Spawn meat food based on remaining energy
             let meat_amount = (remaining_energy / 20.0).ceil() as u32;
             if meat_amount > 0 {

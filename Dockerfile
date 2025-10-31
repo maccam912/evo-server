@@ -25,6 +25,9 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder /app/target/release/evo-server /usr/local/bin/evo-server
 
+# Copy static files for frontend
+COPY static /app/static
+
 # Create directories for data persistence
 RUN mkdir -p /app/checkpoints /app/data
 

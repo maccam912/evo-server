@@ -103,7 +103,7 @@ impl Default for Config {
             },
             server: ServerConfig {
                 enabled: true,
-                address: "127.0.0.1".to_string(),
+                address: "0.0.0.0".to_string(),
                 port: 8080,
                 update_rate_hz: 10,
             },

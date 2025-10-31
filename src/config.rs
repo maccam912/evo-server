@@ -132,9 +132,36 @@ impl Default for Config {
 
 impl Config {
     pub fn load_from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(path)?;
-        let config = serde_json::from_str(&content)?;
-        Ok(config)
+        match std::fs::read_to_string(path) {
+            Ok(content) => {
+                match serde_json::from_str(&content) {
+                    Ok(config) => Ok(config),
+                    Err(e) => {
+                        // Deserialization error - backup the old file and create new default
+                        log::error!("Failed to parse config file: {}. Creating backup and using defaults.", e);
+
+                        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                        let backup_path = format!("{}.backup.{}", path, timestamp);
+
+                        if let Err(rename_err) = std::fs::rename(path, &backup_path) {
+                            log::error!("Failed to backup old config: {}", rename_err);
+                        } else {
+                            log::info!("Backed up old config to: {}", backup_path);
+                        }
+
+                        let default_config = Config::default();
+                        if let Err(save_err) = default_config.save_to_file(path) {
+                            log::error!("Failed to save new default config: {}", save_err);
+                        } else {
+                            log::info!("Created new default config at: {}", path);
+                        }
+
+                        Ok(default_config)
+                    }
+                }
+            }
+            Err(e) => Err(Box::new(e))
+        }
     }
 
     pub fn save_to_file(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {

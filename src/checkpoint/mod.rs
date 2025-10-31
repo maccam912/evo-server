@@ -23,13 +23,37 @@ pub fn save_checkpoint(state: &SimulationState, config: &Config) -> Result<Strin
 pub fn load_checkpoint(config: &Config) -> Result<Option<SimulationState>, Box<dyn std::error::Error>> {
     if let Some(checkpoint_path) = storage::find_latest_checkpoint(&config.checkpoint.directory) {
         log::info!("Loading checkpoint from: {:?}", checkpoint_path);
-        let content = fs::read_to_string(checkpoint_path)?;
-        let mut state: SimulationState = serde_json::from_str(&content)?;
 
-        // Rebuild spatial index since it's not serialized
-        state.rebuild_spatial_index();
+        match fs::read_to_string(&checkpoint_path) {
+            Ok(content) => {
+                match serde_json::from_str::<SimulationState>(&content) {
+                    Ok(mut state) => {
+                        // Rebuild spatial index since it's not serialized
+                        state.rebuild_spatial_index();
+                        Ok(Some(state))
+                    }
+                    Err(e) => {
+                        // Deserialization error - backup the old checkpoint and start fresh
+                        log::error!("Failed to parse checkpoint file: {}. Creating backup and starting fresh.", e);
 
-        Ok(Some(state))
+                        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                        let backup_path = format!("{}.backup.{}", checkpoint_path.display(), timestamp);
+
+                        if let Err(rename_err) = fs::rename(&checkpoint_path, &backup_path) {
+                            log::error!("Failed to backup old checkpoint: {}", rename_err);
+                        } else {
+                            log::info!("Backed up old checkpoint to: {}", backup_path);
+                        }
+
+                        Ok(None)
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to read checkpoint file: {}", e);
+                Ok(None)
+            }
+        }
     } else {
         log::info!("No checkpoint found");
         Ok(None)

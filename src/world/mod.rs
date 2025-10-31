@@ -94,6 +94,19 @@ impl World {
             .map(|c| c.food_amount() as u64)
             .sum()
     }
+
+    /// Ages all food by 1 tick and removes decayed food
+    pub fn age_and_decay_food(&mut self, plant_decay_ticks: u32, meat_decay_ticks: u32) {
+        for cell in self.grid.iter_mut() {
+            // Age the food
+            cell.age_food();
+
+            // Check if it should decay
+            if cell.should_decay(plant_decay_ticks, meat_decay_ticks) {
+                cell.decay();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -113,7 +126,7 @@ mod tests {
         let mut world = World::new(10, 10);
         assert!(world.get(5, 5).unwrap().is_empty());
 
-        world.set(5, 5, CellType::Food { amount: 10, is_meat: false });
+        world.set(5, 5, CellType::Food { amount: 10, is_meat: false, age: 0 });
         assert_eq!(world.get(5, 5).unwrap().food_amount(), 10);
     }
 
@@ -134,8 +147,8 @@ mod tests {
     #[test]
     fn test_world_empty_neighbors() {
         let mut world = World::new(10, 10);
-        world.set(4, 4, CellType::Food { amount: 5, is_meat: false });
-        world.set(5, 4, CellType::Food { amount: 5, is_meat: false });
+        world.set(4, 4, CellType::Food { amount: 5, is_meat: false, age: 0 });
+        world.set(5, 4, CellType::Food { amount: 5, is_meat: false, age: 0 });
 
         let empty = world.empty_neighbors(5, 5);
         assert_eq!(empty.len(), 6);
@@ -144,8 +157,8 @@ mod tests {
     #[test]
     fn test_world_total_food() {
         let mut world = World::new(10, 10);
-        world.set(0, 0, CellType::Food { amount: 5, is_meat: false });
-        world.set(1, 1, CellType::Food { amount: 10, is_meat: false });
+        world.set(0, 0, CellType::Food { amount: 5, is_meat: false, age: 0 });
+        world.set(1, 1, CellType::Food { amount: 10, is_meat: false, age: 0 });
 
         assert_eq!(world.total_food(), 15);
     }

@@ -94,7 +94,9 @@ Controls the environment and food system.
   "height": 100,
   "initial_food_density": 0.3,
   "food_regen_rate": 0.001,
-  "max_food_per_cell": 10
+  "max_food_per_cell": 10,
+  "plant_decay_ticks": 600,
+  "meat_decay_ticks": 300
 }
 ```
 
@@ -187,6 +189,67 @@ max_population ≈ (width × height × food_regen_rate × energy_per_food) / ene
 - `1`: No accumulation - cells have 0 or 1 food only
 - `10`: Default - moderate accumulation
 - `50`: High accumulation - rich "food patches"
+
+#### `plant_decay_ticks`
+
+**Type**: Integer
+**Default**: 600
+**Range**: 1-10000
+
+**Description**: Number of ticks before plant food decays and disappears.
+
+**Time at 30 TPS**:
+- `300`: 10 seconds
+- `600`: 20 seconds (default)
+- `1800`: 60 seconds (1 minute)
+- `0` or very low: Nearly instant decay (harsh environment)
+
+**Effects**:
+- Prevents infinite food accumulation in unexplored areas
+- Creates dynamic food distribution
+- Forces creatures to continually search for fresh food
+- Balances with `food_regen_rate` to determine equilibrium food availability
+
+**Tuning**:
+- Higher: More stable food supply, easier survival
+- Lower: Forces constant movement, higher selection pressure
+- Should generally be higher than `meat_decay_ticks` (plant lasts longer)
+
+#### `meat_decay_ticks`
+
+**Type**: Integer
+**Default**: 300
+**Range**: 1-10000
+
+**Description**: Number of ticks before meat food (from dead creatures) decays and disappears.
+
+**Time at 30 TPS**:
+- `150`: 5 seconds
+- `300`: 10 seconds (default)
+- `600`: 20 seconds
+- `900`: 30 seconds
+
+**Effects**:
+- Creates urgency around scavenging dead creatures
+- Prevents meat from accumulating indefinitely
+- Faster decay than plant food encourages opportunistic feeding
+- Rewards creatures that can quickly locate and consume fresh kills
+
+**Strategic implications**:
+- Lower values favor aggressive hunting (immediate consumption)
+- Higher values allow more time for scavengers to find meat
+- Default (300) is half of plant decay time (600), making meat a time-limited resource
+
+**Relationship to combat**:
+```
+# Meat dropped per kill:
+meat_amount = floor(victim_energy / 20)
+
+# Time window to scavenge:
+scavenge_window = meat_decay_ticks / ticks_per_second
+
+# Default: 300 / 30 = 10 seconds to find and eat meat
+```
 
 ## Creature Configuration
 

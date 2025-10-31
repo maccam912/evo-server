@@ -48,18 +48,32 @@ When a simulation starts:
 
 The simulation runs at a configurable rate (default: 30 ticks per second). Each tick follows this exact sequence:
 
-### 1. Food Regeneration Phase
+### 1. Food Regeneration and Decay Phase
 
 ```rust
+# Regenerate food
 for each cell in world:
     if random() < food_regen_rate:
         if cell.food < max_food_per_cell:
             cell.food += 1
+
+# Age and decay food
+for each cell in world:
+    cell.age_food()  # Increment age by 1
+    if cell.should_decay(plant_decay_ticks, meat_decay_ticks):
+        cell.decay()  # Remove food
 ```
 
+**Regeneration**:
 - **Rate**: `food_regen_rate` (default 0.001 = 0.1% of cells per tick)
 - **Result**: ~10 cells gain food per tick in a 100×100 world
 - **Cap**: Cells cannot exceed `max_food_per_cell` food units
+
+**Decay**:
+- **Plant food**: Decays after `plant_decay_ticks` (default 600 = ~20 seconds at 30 TPS)
+- **Meat food**: Decays after `meat_decay_ticks` (default 300 = ~10 seconds at 30 TPS, faster)
+- **Age tracking**: Each food cell tracks ticks since creation/refresh
+- **Purpose**: Prevents infinite food accumulation and creates urgency for scavenging
 
 ### 2. Creature Processing Phase
 
@@ -370,11 +384,52 @@ These sensors enable creatures to:
 
 ## Food Mechanics
 
+### Food Types
+
+**Plant Food** (Green):
+- **Source**: Natural regeneration
+- **Regeneration rate**: 0.1% of cells per tick (default)
+- **Decay time**: 600 ticks (~20 seconds at 30 TPS)
+- **Properties**: Slower decay, stable resource
+
+**Meat Food** (Red):
+- **Source**: Dropped when creatures die
+- **Amount**: `floor(creature_energy / 20)` units
+- **Decay time**: 300 ticks (~10 seconds at 30 TPS, faster than plant)
+- **Properties**: High-value but time-limited, encourages scavenging
+
 ### Food Properties
 
 - **Regeneration**: Stochastic (random cells gain food each tick)
 - **Consumption**: All-or-nothing (entire cell's food eaten at once)
-- **Distribution**: Initially random, then governed by regeneration rate
+- **Decay**: Age-based removal after type-specific threshold
+- **Age tracking**: Food age resets to 0 when more food is added to cell
+- **Distribution**: Initially random, then governed by regeneration and decay rates
+
+### Food Decay System
+
+Each food cell tracks its age in ticks:
+
+```rust
+# Every tick:
+food.age += 1
+
+# Check decay threshold:
+if food.is_meat:
+    should_decay = (food.age >= meat_decay_ticks)  # 300 ticks
+else:
+    should_decay = (food.age >= plant_decay_ticks)  # 600 ticks
+
+# Remove if expired:
+if should_decay:
+    cell = Empty
+```
+
+**Strategic implications**:
+- **Meat creates urgency**: Must scavenge within ~10 seconds
+- **Plant is stable**: Reliable long-term food source
+- **Prevents hoarding**: No infinite food accumulation
+- **Dynamic equilibrium**: Food availability balances regeneration vs decay
 
 ### Food Dynamics
 

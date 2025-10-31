@@ -15,7 +15,11 @@ pub enum Direction {
 
 impl SimulationState {
     pub fn tick(&mut self, config: &Config) {
+        // Food regeneration
         self.world.regenerate_food(config.world.food_regen_rate, config.world.max_food_per_cell);
+
+        // Food aging and decay
+        self.world.age_and_decay_food(config.world.plant_decay_ticks, config.world.meat_decay_ticks);
 
         let mut creature_ids: Vec<u64> = self.creatures.keys().copied().collect();
         let mut rng = rand::thread_rng();

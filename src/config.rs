@@ -18,6 +18,8 @@ pub struct WorldConfig {
     pub initial_food_density: f64,
     pub food_regen_rate: f64,
     pub max_food_per_cell: u32,
+    pub plant_decay_ticks: u32,
+    pub meat_decay_ticks: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +83,8 @@ impl Default for Config {
                 initial_food_density: 0.3,
                 food_regen_rate: 0.001,
                 max_food_per_cell: 10,
+                plant_decay_ticks: 600,   // ~20 seconds at 30 TPS
+                meat_decay_ticks: 300,    // ~10 seconds at 30 TPS (faster decay)
             },
             creature: CreatureConfig {
                 initial_population: 100,

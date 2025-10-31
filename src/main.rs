@@ -46,7 +46,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Initializing simulation...");
     let state = if !args.no_checkpoint && config.checkpoint.enabled {
-        if let Ok(Some(loaded_state)) = checkpoint::load_checkpoint(&config) {
+        if let Ok(Some(mut loaded_state)) = checkpoint::load_checkpoint(&config) {
+            SimulationState::apply_population_cap(
+                &mut loaded_state.creatures,
+                config.creature.max_population,
+            );
             log::info!("Resumed from checkpoint at tick {}", loaded_state.tick);
             loaded_state
         } else {

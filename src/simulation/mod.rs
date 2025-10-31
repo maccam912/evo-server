@@ -46,6 +46,8 @@ impl SimulationState {
             creatures.insert(id as u64, creature);
         }
 
+        Self::apply_population_cap(&mut creatures, config.creature.max_population);
+
         Self {
             world,
             creatures,
@@ -62,6 +64,33 @@ impl SimulationState {
         let creatures = self.creatures_vec();
         let total_food = self.world.total_food();
         SimulationMetrics::compute(self.tick, &creatures, total_food)
+    }
+
+    pub fn apply_population_cap(creatures: &mut HashMap<u64, Creature>, max_population: usize) {
+        if max_population == 0 || creatures.len() <= max_population {
+            return;
+        }
+
+        let to_remove = creatures.len() - max_population;
+        let mut rng = rand::thread_rng();
+        let creature_ids: Vec<u64> = creatures.keys().copied().collect();
+
+        use rand::seq::SliceRandom;
+        let mut ids_to_remove = creature_ids;
+        ids_to_remove.shuffle(&mut rng);
+
+        for &id in ids_to_remove.iter().take(to_remove) {
+            creatures.remove(&id);
+        }
+
+        log::info!("Population cap enforced: culled {} creatures", to_remove);
+    }
+
+    pub fn can_spawn_new_creature(&self, max_population: usize) -> bool {
+        if max_population == 0 {
+            return true;
+        }
+        self.creatures.len() < max_population
     }
 }
 

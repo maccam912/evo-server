@@ -69,7 +69,8 @@ impl SimulationState {
                        config.creature.min_reproduce_energy,
                        self.tick,
                        config.creature.reproduce_cooldown_ticks,
-                   )
+                   ) &&
+                   self.can_spawn_new_creature(config.creature.max_population)
                 {
                     let creature_x = creature.x;
                     let creature_y = creature.y;

@@ -22,6 +22,7 @@ pub struct WorldConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatureConfig {
     pub initial_population: usize,
+    pub max_population: usize,
     pub initial_energy: f64,
     pub max_energy: f64,
     pub energy_per_food: f64,
@@ -67,14 +68,15 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             world: WorldConfig {
-                width: 1000,
-                height: 1000,
+                width: 100,
+                height: 100,
                 initial_food_density: 0.3,
                 food_regen_rate: 0.001,
                 max_food_per_cell: 10,
             },
             creature: CreatureConfig {
                 initial_population: 100,
+                max_population: 1000,
                 initial_energy: 100.0,
                 max_energy: 200.0,
                 energy_per_food: 20.0,

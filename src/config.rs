@@ -5,6 +5,7 @@ pub struct Config {
     pub world: WorldConfig,
     pub creature: CreatureConfig,
     pub evolution: EvolutionConfig,
+    pub combat: CombatConfig,
     pub simulation: SimulationConfig,
     pub checkpoint: CheckpointConfig,
     pub server: ServerConfig,
@@ -40,6 +41,13 @@ pub struct EvolutionConfig {
     pub neural_net_inputs: usize,
     pub neural_net_hidden: usize,
     pub neural_net_outputs: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CombatConfig {
+    pub damage_per_attack: f64,
+    pub health_regen_rate: f64,
+    pub health_regen_energy_cost: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,10 +96,15 @@ impl Default for Config {
             },
             evolution: EvolutionConfig {
                 mutation_rate: 0.01,
-                genome_size: 100,
-                neural_net_inputs: 8,
+                genome_size: 150,  // Increased for more weights
+                neural_net_inputs: 16,  // Expanded for combat sensors
                 neural_net_hidden: 6,
                 neural_net_outputs: 4,
+            },
+            combat: CombatConfig {
+                damage_per_attack: 20.0,
+                health_regen_rate: 2.0,
+                health_regen_energy_cost: 2.0,
             },
             simulation: SimulationConfig {
                 ticks_per_second: 30,

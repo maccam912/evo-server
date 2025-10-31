@@ -19,20 +19,26 @@ A real-time artificial life simulation powered by neural networks and genetic al
 
 ## Overview
 
-This project simulates the evolution of artificial creatures that must learn to survive in a resource-limited environment. Each creature has:
+This project simulates the evolution of artificial creatures that must learn to survive in a competitive, resource-limited environment. Each creature has:
 
-- **A neural network brain** (8 inputs → 6 hidden neurons → 4 outputs) that controls its behavior
-- **A genetic code** (100-byte genome) that encodes the neural network's weights
-- **An energy-based metabolism** that requires finding and consuming food
+- **A neural network brain** (16 inputs → 6 hidden neurons → 4 outputs) that controls its behavior
+- **A genetic code** (150-byte genome) that encodes the neural network's weights
+- **Dual resource systems**: Energy for actions and Health for survival
+- **Combat capabilities**: Creatures can attack each other for territory and resources
+- **Advanced sensors**: Detect nearby creatures, respond to attacks, monitor health
 - **The ability to reproduce**, passing mutated copies of their genome to offspring
 
-Over thousands of generations, natural selection shapes these creatures from random beginnings into increasingly capable food-finding agents.
+Over thousands of generations, natural selection shapes these creatures from random beginnings into complex agents capable of hunting, fleeing, healing, and strategic combat.
 
 ### Key Features
 
+- **Combat system**: Creatures can attack, defend, and evolve combat strategies
+- **Health and healing**: Separate health pool with energy-based regeneration
+- **Food diversity**: Plant food (renewable) and meat food (from deceased creatures)
+- **Advanced AI sensors**: 16 sensory inputs including threat detection and health awareness
 - Real-time web-based visualization with energy-colored creatures
 - Automatic checkpoint/resume system for long-running experiments
-- Highly configurable simulation parameters
+- Highly configurable simulation parameters (damage, healing, neural architecture)
 - Built with Rust for maximum performance
 - Docker support for easy deployment
 

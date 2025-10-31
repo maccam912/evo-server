@@ -4,13 +4,18 @@ use serde::{Deserialize, Serialize};
 pub struct Metabolism {
     energy: f64,
     max_energy: f64,
+    health: f64,
+    max_health: f64,
 }
 
 impl Metabolism {
     pub fn new(initial_energy: f64, max_energy: f64) -> Self {
+        let max_health = 100.0; // Default max health
         Self {
             energy: initial_energy.min(max_energy),
             max_energy,
+            health: max_health,
+            max_health,
         }
     }
 
@@ -23,7 +28,7 @@ impl Metabolism {
     }
 
     pub fn is_alive(&self) -> bool {
-        self.energy > 0.0
+        self.health > 0.0
     }
 
     pub fn consume_energy(&mut self, amount: f64) -> bool {
@@ -46,6 +51,38 @@ impl Metabolism {
 
     pub fn energy_ratio(&self) -> f64 {
         self.energy / self.max_energy
+    }
+
+    pub fn health(&self) -> f64 {
+        self.health
+    }
+
+    pub fn max_health(&self) -> f64 {
+        self.max_health
+    }
+
+    pub fn health_ratio(&self) -> f64 {
+        self.health / self.max_health
+    }
+
+    pub fn take_damage(&mut self, amount: f64) {
+        self.health = (self.health - amount).max(0.0);
+    }
+
+    pub fn heal(&mut self, amount: f64) {
+        self.health = (self.health + amount).min(self.max_health);
+    }
+
+    /// Attempt to heal passively. Returns true if healing occurred.
+    /// Costs energy_cost per healing_amount
+    pub fn passive_heal(&mut self, healing_amount: f64, energy_cost: f64) -> bool {
+        if self.health < self.max_health && self.energy >= energy_cost {
+            self.heal(healing_amount);
+            self.consume_energy(energy_cost);
+            true
+        } else {
+            false
+        }
     }
 }
 

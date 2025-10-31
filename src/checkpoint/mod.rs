@@ -24,7 +24,11 @@ pub fn load_checkpoint(config: &Config) -> Result<Option<SimulationState>, Box<d
     if let Some(checkpoint_path) = storage::find_latest_checkpoint(&config.checkpoint.directory) {
         log::info!("Loading checkpoint from: {:?}", checkpoint_path);
         let content = fs::read_to_string(checkpoint_path)?;
-        let state: SimulationState = serde_json::from_str(&content)?;
+        let mut state: SimulationState = serde_json::from_str(&content)?;
+
+        // Rebuild spatial index since it's not serialized
+        state.rebuild_spatial_index();
+
         Ok(Some(state))
     } else {
         log::info!("No checkpoint found");

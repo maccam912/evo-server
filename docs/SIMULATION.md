@@ -7,6 +7,8 @@ This document explains how the evolution simulator works at a detailed level, in
 - [World Structure](#world-structure)
 - [The Tick Cycle](#the-tick-cycle)
 - [Energy System](#energy-system)
+- [Health System](#health-system)
+- [Combat Mechanics](#combat-mechanics)
 - [Food Mechanics](#food-mechanics)
 - [Reproduction System](#reproduction-system)
 - [Death and Population Control](#death-and-population-control)
@@ -28,9 +30,11 @@ The world is a 2D grid of cells:
 
 Each cell can contain:
 - **Food**: 0 to `max_food_per_cell` units (default: 10 units)
-- **Creatures**: Any number (no cell occupancy limit)
+  - **Plant food**: Naturally regenerating food (green in UI)
+  - **Meat food**: Dropped when creatures die (red in UI)
+- **Creatures**: **At most one creature per cell**
 
-Note: While multiple creatures can occupy the same cell, movement actions require the target cell to be empty of creatures.
+Note: Combat occurs when a creature attempts to move into an occupied cell.
 
 ### Initial State
 
@@ -230,29 +234,139 @@ The simulation ends if:
 Every creature must balance energy income and expenses:
 
 **Income**:
-- Food consumption: +20.0 per food unit eaten
+- Food consumption: +20.0 per food unit eaten (plant or meat)
 
 **Expenses**:
 - Metabolism: -0.1 per tick (always)
 - Movement: -1.0 per move attempt (even if blocked)
 - Reproduction: -50.0 per offspring created
+- **Passive healing**: -2.0 per tick (when health < max and energy available)
 
 ### Energy Constraints
 
-- **Minimum**: 0.0 (death occurs at or below this)
+- **Minimum**: 0.0 (no direct death, but prevents healing and actions)
 - **Maximum**: 200.0 (default `max_energy`)
 - **Starting**: 100.0 (default `initial_energy`)
+
+**Note**: Unlike previous versions, running out of energy does NOT kill creatures. Only health depletion causes death.
 
 ### Energy Strategies
 
 Successful creatures must develop strategies like:
 
 1. **Food seeking**: Move toward cells with food
-2. **Energy conservation**: Avoid unnecessary movement
+2. **Energy conservation**: Avoid unnecessary movement while healing
 3. **Reproduction timing**: Wait for high energy before reproducing
-4. **Exploration vs exploitation**: Balance searching new areas vs staying near food
+4. **Combat consideration**: Maintain energy reserves for healing after battles
+5. **Exploration vs exploitation**: Balance searching new areas vs staying near food
 
 These strategies **emerge naturally** through evolution - they are not programmed.
+
+## Health System
+
+### Health Pool
+
+Each creature has a separate health pool independent of energy:
+
+**Stats**:
+- **Maximum**: 100.0 (default `max_health`)
+- **Starting**: 100.0 (full health)
+- **Death threshold**: 0.0 (health ≤ 0 causes death)
+
+### Health Regeneration
+
+Creatures passively heal each tick if:
+1. Current health < max health
+2. Sufficient energy available (2.0 energy cost)
+
+**Healing rate**: +2.0 health per tick (default `health_regen_rate`)
+**Energy cost**: -2.0 energy per tick (default `health_regen_energy_cost`)
+
+Example:
+```
+Tick 1: health=80, energy=100 → health=82, energy=98
+Tick 2: health=82, energy=98  → health=84, energy=96
+Tick 3: health=84, energy=1.5 → health=84, energy=1.5 (not enough energy)
+```
+
+### Health vs Energy
+
+Key distinction:
+- **Energy**: Fuels actions (movement, reproduction, healing)
+- **Health**: Determines survival (only source of death)
+
+This creates strategic tension: creatures must balance action efficiency with combat readiness.
+
+## Combat Mechanics
+
+### Spatial Collisions
+
+**One creature per cell**: Attempting to move into an occupied cell triggers combat instead of movement.
+
+### Attack Resolution
+
+When creature A moves toward creature B's cell:
+
+1. **Energy deduction**: Attacker pays movement cost (-1.0 energy)
+2. **Position**: Attacker remains in original cell (no movement)
+3. **Damage**: Target takes damage (default: 20.0 health)
+4. **One-sided**: Only attacker deals damage this tick
+
+Example combat sequence:
+```
+Tick 0:
+  Creature A: pos=(5,5), health=100, energy=50
+  Creature B: pos=(5,6), health=100, energy=50
+
+Tick 1: A decides MoveDown (toward B)
+  - A pays 1.0 energy
+  - A stays at (5,5)
+  - B takes 20.0 damage
+  Result:
+    A: pos=(5,5), health=100, energy=49
+    B: pos=(5,6), health=80, energy=50
+
+Tick 2: B decides MoveUp (toward A)
+  - B pays 1.0 energy
+  - B stays at (5,6)
+  - A takes 20.0 damage
+  Result:
+    A: pos=(5,5), health=80, energy=49
+    B: pos=(5,6), health=80, energy=49
+```
+
+### Death and Meat Food
+
+When a creature's health ≤ 0:
+
+1. **Death**: Creature is removed from simulation
+2. **Meat drop**: `floor(remaining_energy / 20)` meat food spawns at death location
+3. **Spatial index update**: Cell becomes unoccupied
+
+Example:
+```
+Creature dies with 45.0 energy remaining
+→ Spawns 2 meat food at death position
+→ Other creatures can eat this meat for energy
+```
+
+### Combat Sensors
+
+Creatures have 8 combat-related sensors (see [Neural Networks](NEURAL_NETWORKS.md)):
+
+**Creature detection** (inputs 5-8):
+- Up, Down, Left, Right: 1.0 if creature present, 0.0 otherwise
+
+**Attack detection** (inputs 9-12):
+- Up, Down, Left, Right: 1.0 if attacked from that direction last tick, 0.0 otherwise
+
+**Health awareness** (input 13):
+- Own health ratio: `current_health / max_health` (0.0 to 1.0)
+
+These sensors enable creatures to:
+- Detect nearby threats
+- React to being attacked
+- Make health-aware decisions (flee when wounded, attack when healthy)
 
 ## Food Mechanics
 

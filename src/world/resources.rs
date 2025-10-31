@@ -10,7 +10,7 @@ impl World {
                 if rng.gen::<f64>() < density {
                     let amount = rng.gen_range(1..=max_per_cell);
                     if let Some(cell) = self.get_mut(x, y) {
-                        cell.add_food(amount, max_per_cell);
+                        cell.add_food(amount, max_per_cell, false); // Plant food
                     }
                 }
             }
@@ -24,7 +24,7 @@ impl World {
             for x in 0..self.width() {
                 if rng.gen::<f64>() < rate {
                     if let Some(cell) = self.get_mut(x, y) {
-                        cell.add_food(1, max_per_cell);
+                        cell.add_food(1, max_per_cell, false); // Plant food regeneration
                     }
                 }
             }

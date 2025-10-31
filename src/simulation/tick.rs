@@ -2,6 +2,15 @@ use super::SimulationState;
 use crate::config::Config;
 use crate::creature::neural_net::Action;
 use rand::seq::SliceRandom;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
 impl SimulationState {
     pub fn tick(&mut self, config: &Config) {
@@ -12,6 +21,8 @@ impl SimulationState {
         creature_ids.shuffle(&mut rng);
 
         let mut new_creatures = Vec::new();
+        // Track attacks this tick: victim_id -> attacker_direction
+        let mut attacks_this_tick: HashMap<u64, Vec<Direction>> = HashMap::new();
 
         for id in creature_ids {
             let (x, y, action) = {
@@ -21,6 +32,12 @@ impl SimulationState {
                         creature.age += 1;
 
                         creature.consume_energy(config.creature.energy_cost_per_tick);
+
+                        // Passive healing
+                        creature.metabolism.passive_heal(
+                            config.combat.health_regen_rate,
+                            config.combat.health_regen_energy_cost,
+                        );
 
                         if !creature.is_alive() {
                             continue;
@@ -32,7 +49,7 @@ impl SimulationState {
                     }
                 };
 
-                let inputs = self.get_sensor_inputs(x, y, energy, config);
+                let inputs = self.get_sensor_inputs(id, x, y, energy, config);
                 let action = if let Some(creature) = self.creatures.get(&id) {
                     creature.decide_action(&inputs)
                 } else {
@@ -53,12 +70,35 @@ impl SimulationState {
                             let new_x = (x as i32 + dx).max(0).min(self.world.width() as i32 - 1) as usize;
                             let new_y = (y as i32 + dy).max(0).min(self.world.height() as i32 - 1) as usize;
 
-                            if let Some(cell) = self.world.get(new_x, new_y) {
-                                if cell.is_empty() || cell.is_food() {
-                                    creature.x = new_x;
-                                    creature.y = new_y;
-                                    drop(creature);
-                                    self.try_eat(id, config);
+                            // Check if there's a creature at the target position
+                            if let Some(target_creature_id) = self.creature_at(new_x, new_y) {
+                                // Attack the creature instead of moving
+                                drop(creature);
+                                if let Some(target) = self.creatures.get_mut(&target_creature_id) {
+                                    target.metabolism.take_damage(config.combat.damage_per_attack);
+
+                                    // Record attack direction for sensors
+                                    let attack_dir = match action {
+                                        Action::MoveUp => Direction::Down,    // Attacked from below
+                                        Action::MoveDown => Direction::Up,    // Attacked from above
+                                        Action::MoveLeft => Direction::Right, // Attacked from right
+                                        Action::MoveRight => Direction::Left, // Attacked from left
+                                        _ => unreachable!(),
+                                    };
+                                    attacks_this_tick.entry(target_creature_id).or_insert_with(Vec::new).push(attack_dir);
+                                }
+                            } else {
+                                // No creature, check if we can move there
+                                if let Some(cell) = self.world.get(new_x, new_y) {
+                                    if cell.is_empty() || cell.is_food() {
+                                        // Update spatial index
+                                        self.update_creature_position(id, x, y, new_x, new_y);
+
+                                        creature.x = new_x;
+                                        creature.y = new_y;
+                                        drop(creature);
+                                        self.try_eat(id, config);
+                                    }
                                 }
                             }
                         }
@@ -105,54 +145,151 @@ impl SimulationState {
             }
         }
 
+        // Add new creatures and update spatial index
         for creature in new_creatures {
+            self.add_creature_to_position(creature.id, creature.x, creature.y);
             self.creatures.insert(creature.id, creature);
         }
 
-        // Count deaths before removing dead creatures
+        // Handle deaths: spawn meat food and update spatial index
+        let dead_creatures: Vec<(u64, usize, usize, f64)> = self.creatures
+            .iter()
+            .filter(|(_, c)| !c.is_alive())
+            .map(|(id, c)| (*id, c.x, c.y, c.energy()))
+            .collect();
+
+        for (dead_id, x, y, remaining_energy) in dead_creatures {
+            // Spawn meat food based on remaining energy
+            let meat_amount = (remaining_energy / 20.0).ceil() as u32;
+            if meat_amount > 0 {
+                if let Some(cell) = self.world.get_mut(x, y) {
+                    cell.add_food(meat_amount, config.world.max_food_per_cell, true); // true = meat
+                }
+            }
+
+            // Remove from spatial index
+            self.remove_creature_from_position(x, y);
+        }
+
+        // Count and remove dead creatures
         let deaths_this_tick = self.creatures.values().filter(|c| !c.is_alive()).count() as u64;
         self.total_deaths += deaths_this_tick;
-
         self.creatures.retain(|_, c| c.is_alive());
+
+        // Store attacks for next tick's sensors
+        self.attacks_last_tick = attacks_this_tick;
 
         self.tick += 1;
     }
 
-    fn get_sensor_inputs(&self, x: usize, y: usize, energy: f64, config: &Config) -> Vec<f64> {
+    fn get_sensor_inputs(&self, creature_id: u64, x: usize, y: usize, energy: f64, config: &Config) -> Vec<f64> {
         let mut inputs = vec![0.0; config.evolution.neural_net_inputs];
 
+        // Input 0: Energy ratio
         inputs[0] = energy / config.creature.max_energy;
 
         let neighbors = self.world.neighbors(x, y);
         let mut food_count = 0;
         let mut empty_count = 0;
+        let mut plant_food_count = 0;
+        let mut meat_food_count = 0;
 
         for (nx, ny) in neighbors {
             if let Some(cell) = self.world.get(nx, ny) {
                 if cell.is_food() {
                     food_count += 1;
+                    if cell.is_meat() {
+                        meat_food_count += 1;
+                    } else {
+                        plant_food_count += 1;
+                    }
                 } else if cell.is_empty() {
                     empty_count += 1;
                 }
             }
         }
 
+        // Input 1: Nearby food count (0.0-1.0)
         if config.evolution.neural_net_inputs > 1 {
             inputs[1] = food_count as f64 / 8.0;
         }
+
+        // Input 2: Empty neighbor count (0.0-1.0)
         if config.evolution.neural_net_inputs > 2 {
             inputs[2] = empty_count as f64 / 8.0;
         }
 
+        // Input 3: Food at current position (0.0 or 1.0)
         if let Some(cell) = self.world.get(x, y) {
             if config.evolution.neural_net_inputs > 3 && cell.is_food() {
                 inputs[3] = 1.0;
             }
         }
 
+        // Input 4: Nearby creature density (0.0-1.0)
         let nearby_creatures = self.count_nearby_creatures(x, y, 5);
         if config.evolution.neural_net_inputs > 4 {
             inputs[4] = (nearby_creatures as f64 / 25.0).min(1.0);
+        }
+
+        // Inputs 5-8: Creature detected in [Up, Down, Left, Right]
+        if config.evolution.neural_net_inputs > 5 {
+            if let Some(_) = self.creature_at(x, y.wrapping_sub(1)) {
+                inputs[5] = 1.0; // Up
+            }
+        }
+        if config.evolution.neural_net_inputs > 6 {
+            if let Some(_) = self.creature_at(x, y + 1) {
+                inputs[6] = 1.0; // Down
+            }
+        }
+        if config.evolution.neural_net_inputs > 7 {
+            if let Some(_) = self.creature_at(x.wrapping_sub(1), y) {
+                inputs[7] = 1.0; // Left
+            }
+        }
+        if config.evolution.neural_net_inputs > 8 {
+            if let Some(_) = self.creature_at(x + 1, y) {
+                inputs[8] = 1.0; // Right
+            }
+        }
+
+        // Inputs 9-12: Being attacked from [Up, Down, Left, Right]
+        if let Some(attack_dirs) = self.attacks_last_tick.get(&creature_id) {
+            for &dir in attack_dirs {
+                match dir {
+                    Direction::Up if config.evolution.neural_net_inputs > 9 => inputs[9] = 1.0,
+                    Direction::Down if config.evolution.neural_net_inputs > 10 => inputs[10] = 1.0,
+                    Direction::Left if config.evolution.neural_net_inputs > 11 => inputs[11] = 1.0,
+                    Direction::Right if config.evolution.neural_net_inputs > 12 => inputs[12] = 1.0,
+                    _ => {}
+                }
+            }
+        }
+
+        // Input 13: Own health ratio
+        if config.evolution.neural_net_inputs > 13 {
+            if let Some(creature) = self.creatures.get(&creature_id) {
+                inputs[13] = creature.metabolism.health_ratio();
+            }
+        }
+
+        // Input 14: Nearby plant food ratio (0.0-1.0)
+        if config.evolution.neural_net_inputs > 14 {
+            inputs[14] = if food_count > 0 {
+                plant_food_count as f64 / food_count as f64
+            } else {
+                0.0
+            };
+        }
+
+        // Input 15: Nearby meat food ratio (0.0-1.0)
+        if config.evolution.neural_net_inputs > 15 {
+            inputs[15] = if food_count > 0 {
+                meat_food_count as f64 / food_count as f64
+            } else {
+                0.0
+            };
         }
 
         inputs
@@ -165,7 +302,8 @@ impl SimulationState {
 
             if let Some(cell) = self.world.get_mut(x, y) {
                 if cell.is_food() {
-                    let food_amount = cell.consume_food();
+                    let (food_amount, _is_meat) = cell.consume_food();
+                    // For now, treat plant and meat food the same
                     let energy_gain = food_amount as f64 * config.creature.energy_per_food;
 
                     if let Some(creature) = self.creatures.get_mut(&creature_id) {

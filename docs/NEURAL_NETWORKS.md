@@ -21,19 +21,24 @@ Each creature has a **feedforward neural network** brain with fixed architecture
 
 ```
 INPUT LAYER          HIDDEN LAYER         OUTPUT LAYER
-  (8 neurons)         (6 neurons)          (4 neurons)
+  (16 neurons)        (6 neurons)          (4 neurons)
 
      [0]  ────────┐    ┌──► [H0] ────┐    ┌──► [Up]
-     [1]  ────────┼────┤              ├────┤
+     [1]  ────────┤    │              │    │
      [2]  ────────┤    │    [H1] ────┤    │    [Down]
      [3]  ────────┤    │              │    ├──►
-     [4]  ────────┼────┤    [H2] ────┤    │    [Left]
-     [5]  ────────┤    │              ├────┤
-     [6]  ────────┤    │    [H3] ────┤    │    [Right]
-     [7]  ────────┘    │              │    └──►
-                       │    [H4] ────┤
-                       │              │
-                       └──► [H5] ────┘
+     [4]  ────────┤    │    [H2] ────┤    │
+     [5]  ────────┼────┤              ├────┤    [Left]
+     [6]  ────────┤    │    [H3] ────┤    │
+     [7]  ────────┤    │              │    │    [Right]
+     [8]  ────────┤    │    [H4] ────┤    └──►
+     [9]  ────────┤    │              │
+    [10]  ────────┤    └──► [H5] ────┘
+    [11]  ────────┤
+    [12]  ────────┤
+    [13]  ────────┤       tanh
+    [14]  ────────┤       activation
+    [15]  ────────┘
 
   Sensors              tanh              tanh
   (normalized)         activation        activation
@@ -51,20 +56,20 @@ INPUT LAYER          HIDDEN LAYER         OUTPUT LAYER
 
 | Layer | Neurons | Activation | Purpose |
 |-------|---------|------------|---------|
-| Input | 8 | None (pass-through) | Sensor data from environment |
+| Input | 16 | None (pass-through) | Sensor data from environment (energy, food, combat, health) |
 | Hidden | 6 | Hyperbolic tangent (tanh) | Feature extraction and decision logic |
 | Output | 4 | Hyperbolic tangent (tanh) | Action selection |
 
 ### Total Parameters
 
 **Weight counts**:
-- Input → Hidden: 8 × 6 = **48 weights**
+- Input → Hidden: 16 × 6 = **96 weights**
 - Hidden → Output: 6 × 4 = **24 weights**
-- **Total: 72 weights**
+- **Total: 120 weights**
 
 **Bias neurons**: Currently **not implemented** (no bias terms)
 
-**Genome usage**: 72 genes are used from the 100-byte genome to encode all weights.
+**Genome usage**: 120 genes are used from the 150-byte genome to encode all weights. The remaining 30 bytes are available for future traits or wrap around if needed.
 
 ## Input Layer (Sensors)
 
@@ -140,16 +145,146 @@ input[4] = min(creature_count / 78.0, 1.0)
 - Seeking crowded areas (social behavior, if beneficial)
 - Migration patterns
 
-### Inputs 5-7: Unused (Reserved)
+### Input 5: Creature Detected Up
 
 ```rust
-input[5] = 0.0
-input[6] = 0.0
-input[7] = 0.0
+input[5] = if creature_at(x, y - 1) { 1.0 } else { 0.0 }
 ```
 
-- **Status**: Currently unused
-- **Purpose**: Reserved for future sensor additions
+- **Range**: 0.0 or 1.0 (binary)
+- **Meaning**: Enemy presence directly above
+
+**Purpose**: Enables combat awareness and tactical positioning. Creatures can detect threats before moving.
+
+### Input 6: Creature Detected Down
+
+```rust
+input[6] = if creature_at(x, y + 1) { 1.0 } else { 0.0 }
+```
+
+- **Range**: 0.0 or 1.0 (binary)
+- **Meaning**: Enemy presence directly below
+
+### Input 7: Creature Detected Left
+
+```rust
+input[7] = if creature_at(x - 1, y) { 1.0 } else { 0.0 }
+```
+
+- **Range**: 0.0 or 1.0 (binary)
+- **Meaning**: Enemy presence directly to the left
+
+### Input 8: Creature Detected Right
+
+```rust
+input[8] = if creature_at(x + 1, y) { 1.0 } else { 0.0 }
+```
+
+- **Range**: 0.0 or 1.0 (binary)
+- **Meaning**: Enemy presence directly to the right
+
+**Purpose (Inputs 5-8)**: These four directional sensors enable creatures to:
+- Detect immediate threats in cardinal directions
+- Choose combat vs avoidance strategies
+- Coordinate attacks from specific directions
+- Learn to flee when surrounded
+
+### Input 9: Attacked From Up (Last Tick)
+
+```rust
+input[9] = if attacked_from_up_last_tick { 1.0 } else { 0.0 }
+```
+
+- **Range**: 0.0 or 1.0 (binary)
+- **Meaning**: Took damage from above on previous tick
+
+**Purpose**: Enables reactive combat behavior. Creatures can learn to counter-attack or flee from attackers.
+
+### Input 10: Attacked From Down (Last Tick)
+
+```rust
+input[10] = if attacked_from_down_last_tick { 1.0 } else { 0.0 }
+```
+
+- **Range**: 0.0 or 1.0 (binary)
+- **Meaning**: Took damage from below on previous tick
+
+### Input 11: Attacked From Left (Last Tick)
+
+```rust
+input[11] = if attacked_from_left_last_tick { 1.0 } else { 0.0 }
+```
+
+- **Range**: 0.0 or 1.0 (binary)
+- **Meaning**: Took damage from the left on previous tick
+
+### Input 12: Attacked From Right (Last Tick)
+
+```rust
+input[12] = if attacked_from_right_last_tick { 1.0 } else { 0.0 }
+```
+
+- **Range**: 0.0 or 1.0 (binary)
+- **Meaning**: Took damage from the right on previous tick
+
+**Purpose (Inputs 9-12)**: These attack sensors enable:
+- Retaliation behavior (attack back in the direction of the attacker)
+- Escape behavior (flee away from danger)
+- Learning to predict multi-tick combat sequences
+- Differentiating between proactive hunting and defensive responses
+
+### Input 13: Health Ratio
+
+```rust
+input[13] = creature.health / max_health
+```
+
+- **Range**: 0.0 to 1.0
+- **Meaning**: Current health as fraction of maximum
+- **Example values**:
+  - 0.0 = Near death (1 hit from dying)
+  - 0.5 = Half health (moderate danger)
+  - 1.0 = Full health (safe for combat)
+
+**Purpose**: Self-awareness of combat readiness. Enables:
+- Fleeing when wounded
+- Attacking when healthy
+- Seeking food/safety to heal
+- Risk assessment in combat situations
+
+### Input 14: Nearby Plant Food Ratio
+
+```rust
+plant_count = count plant food in 8 neighbors
+food_count = total food in 8 neighbors
+input[14] = if food_count > 0 { plant_count / food_count } else { 0.0 }
+```
+
+- **Range**: 0.0 to 1.0
+- **Meaning**: Proportion of nearby food that is plant-based
+- **Example values**:
+  - 0.0 = All nearby food is meat
+  - 0.5 = Equal mix of plant and meat
+  - 1.0 = All nearby food is plant
+
+**Purpose**: Enables dietary preference evolution. Currently both food types provide equal energy, but this sensor allows future differentiation.
+
+### Input 15: Nearby Meat Food Ratio
+
+```rust
+meat_count = count meat food in 8 neighbors
+food_count = total food in 8 neighbors
+input[15] = if food_count > 0 { meat_count / food_count } else { 0.0 }
+```
+
+- **Range**: 0.0 to 1.0
+- **Meaning**: Proportion of nearby food that is meat
+- **Note**: input[14] + input[15] = 1.0 (when food present)
+
+**Purpose**: Complementary to input 14. Could enable:
+- Scavenger behavior (seeking meat from dead creatures)
+- Herbivore behavior (avoiding meat, seeking plants)
+- Opportunistic feeding (eating whatever is available)
 
 **Potential future sensors**:
 - Directional food gradient (which direction has most food)

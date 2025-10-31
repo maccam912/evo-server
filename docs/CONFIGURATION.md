@@ -9,6 +9,7 @@ This document provides a complete reference for all configuration options in the
 - [World Configuration](#world-configuration)
 - [Creature Configuration](#creature-configuration)
 - [Evolution Configuration](#evolution-configuration)
+- [Combat Configuration](#combat-configuration)
 - [Simulation Configuration](#simulation-configuration)
 - [Checkpoint Configuration](#checkpoint-configuration)
 - [Server Configuration](#server-configuration)
@@ -375,8 +376,8 @@ Controls genetic system and neural network architecture.
 ```json
 "evolution": {
   "mutation_rate": 0.01,
-  "genome_size": 100,
-  "neural_net_inputs": 8,
+  "genome_size": 150,
+  "neural_net_inputs": 16,
   "neural_net_hidden": 6,
   "neural_net_outputs": 4
 }
@@ -413,34 +414,41 @@ Default: `100 × 0.01 = 1 mutation per offspring` (average)
 #### `genome_size`
 
 **Type**: Integer
-**Default**: 100
-**Range**: 72-10000
+**Default**: 150
+**Range**: 120-10000
 
 **Description**: Number of bytes in each creature's genome.
 
-**Minimum**: 72 genes (required for neural network encoding)
-- Input → Hidden: 8 × 6 = 48 genes
+**Minimum**: 120 genes (required for neural network encoding)
+- Input → Hidden: 16 × 6 = 96 genes
 - Hidden → Output: 6 × 4 = 24 genes
 
-**Unused genes**: `genome_size - 72` genes available for future features
+**Unused genes**: `genome_size - 120` genes available for future features
 
 **Effects**:
 - Larger: More potential complexity, slower evolution (larger search space)
 - Smaller: Faster evolution, less complexity potential
-- Default 100: 28 unused genes for future expansion
+- Default 150: 30 unused genes for future expansion
 
 #### `neural_net_inputs`
 
 **Type**: Integer
-**Default**: 8
+**Default**: 16
 **Range**: 1-100
 
 **Description**: Number of input neurons (sensors).
 
-**Current implementation**: Fixed at 8 inputs (5 used, 3 reserved)
+**Current implementation**: 16 inputs fully utilized:
+- Input 0-4: Energy, food detection, movement options, creature density
+- Input 5-8: Directional creature detection (combat awareness)
+- Input 9-12: Directional attack detection (reactive combat)
+- Input 13: Health ratio
+- Input 14-15: Food type ratios (plant/meat)
+
+See [NEURAL_NETWORKS.md](NEURAL_NETWORKS.md) for complete sensor documentation.
 
 **Changing this**:
-- Requires code changes in `src/simulation/brain.rs`
+- Requires code changes in `src/simulation/tick.rs`
 - Must implement new sensor logic
 - Affects genome size requirement: `genome_size ≥ inputs × hidden + hidden × outputs`
 
@@ -484,6 +492,107 @@ Try different values to find the sweet spot for your experiment:
 - Requires code changes to add new actions
 - Could add "Stay" action, "Eat" action, etc.
 - Affects genome size requirement
+
+## Combat Configuration
+
+Controls combat mechanics, damage, and health regeneration.
+
+### Complete Structure
+
+```json
+"combat": {
+  "damage_per_attack": 20.0,
+  "health_regen_rate": 2.0,
+  "health_regen_energy_cost": 2.0
+}
+```
+
+### Parameters
+
+#### `damage_per_attack`
+
+**Type**: Float
+**Default**: 20.0
+**Range**: 0.1-1000.0
+
+**Description**: Health damage dealt when a creature attacks another.
+
+**Combat duration (default health 100.0)**:
+- `10.0`: 10 attacks to kill
+- `20.0`: 5 attacks to kill (default)
+- `50.0`: 2 attacks to kill
+- `100.0`: 1-hit kills
+
+**Trade-offs**:
+- **Low** (5.0-15.0): Extended battles, more strategic combat, healing matters more
+- **Medium** (20.0-30.0): Balanced combat (default range)
+- **High** (50.0+): Quick decisive battles, less time to react
+
+**Effect on evolution**:
+- Higher: Favors aggressive "first strike" behavior
+- Lower: Favors tactical positioning and retreat/heal strategies
+
+#### `health_regen_rate`
+
+**Type**: Float
+**Default**: 2.0
+**Range**: 0.0-50.0
+
+**Description**: Health restored per tick when healing (if energy available).
+
+**Healing time from 0 to 100 HP**:
+- `1.0`: 100 ticks (~3.3 seconds at 30 TPS)
+- `2.0`: 50 ticks (~1.7 seconds, default)
+- `5.0`: 20 ticks (~0.7 seconds)
+- `10.0`: 10 ticks (~0.3 seconds)
+
+**Trade-offs**:
+- **Slow** (0.5-1.0): Long recovery time, combat wounds persist
+- **Medium** (2.0-5.0): Balanced (default range)
+- **Fast** (10.0+): Nearly instant healing between fights
+
+**Effect on evolution**:
+- Slower: Encourages avoidance, careful engagement
+- Faster: Encourages aggression, quick re-engagement
+
+#### `health_regen_energy_cost`
+
+**Type**: Float
+**Default**: 2.0
+**Range**: 0.0-50.0
+
+**Description**: Energy consumed per tick when healing.
+
+**Energy consumption during full heal (0 to 100 HP)**:
+```
+total_energy = (100 / health_regen_rate) × health_regen_energy_cost
+```
+
+**Examples**:
+- `health_regen_rate=2.0, cost=2.0`: 50 ticks × 2.0 = 100 energy (default)
+- `health_regen_rate=5.0, cost=1.0`: 20 ticks × 1.0 = 20 energy (cheap healing)
+- `health_regen_rate=1.0, cost=5.0`: 100 ticks × 5.0 = 500 energy (expensive healing)
+
+**Trade-offs**:
+- **Low** (0.5-1.0): Healing is cheap, energy primarily for movement/reproduction
+- **Medium** (2.0-5.0): Healing competes with other energy needs (default)
+- **High** (10.0+): Healing very costly, creatures must choose carefully
+
+**Effect on evolution**:
+- Lower cost: Aggressive strategies viable (can afford to heal)
+- Higher cost: Defensive strategies favored (avoid damage entirely)
+
+**Relationship to other parameters**:
+```
+# Energy budget for full heal:
+heal_cost = (max_health / health_regen_rate) × health_regen_energy_cost
+
+# Compare to other costs:
+move_cost = energy_cost_move              # Default: 1.0
+reproduce_cost = energy_cost_reproduce    # Default: 50.0
+
+# Default: heal_cost = (100/2.0) × 2.0 = 100 (same as reproduction)
+```
 
 ## Simulation Configuration
 

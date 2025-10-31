@@ -10,9 +10,12 @@
     <div class="container">
         <header>
             <h1>Evolution Simulator</h1>
-            <div class="connection-status">
-                <span class="status-indicator" id="status-indicator"></span>
-                <span id="connection-text">Connecting...</span>
+            <div class="header-controls">
+                <div class="connection-status">
+                    <span class="status-indicator" id="status-indicator"></span>
+                    <span id="connection-text">Connecting...</span>
+                </div>
+                <button id="restart-server" class="restart-btn" title="Restart Server">Restart Server</button>
             </div>
         </header>
 
@@ -26,8 +29,11 @@
                 </div>
             </div>
 
-            <aside class="stats-panel">
-                <h2>Statistics</h2>
+            <aside class="stats-panel" id="stats-panel">
+                <div class="panel-header">
+                    <h2>Statistics</h2>
+                    <button id="toggle-panel" class="toggle-panel-btn" title="Toggle Panel">&#9664;</button>
+                </div>
                 <div class="stat-group">
                     <div class="stat-item">
                         <span class="stat-label">Population:</span>

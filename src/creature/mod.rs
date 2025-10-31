@@ -100,7 +100,12 @@ mod tests {
 
         creature.consume_energy(200.0);
         assert_eq!(creature.energy(), 0.0);
-        assert!(!creature.is_alive());
+        // is_alive() now checks health, not energy
+        assert!(creature.is_alive()); // Still alive with 0 energy but full health
+
+        // Kill creature via health damage
+        creature.metabolism.take_damage(150.0);
+        assert!(!creature.is_alive()); // Now dead due to health depletion
     }
 
     #[test]

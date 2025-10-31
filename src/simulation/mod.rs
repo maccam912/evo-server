@@ -7,7 +7,7 @@ use crate::world::World;
 use crate::simulation::tick::Direction;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationState {
@@ -17,6 +17,8 @@ pub struct SimulationState {
     pub creature_positions: HashMap<(usize, usize), u64>,
     #[serde(skip)]
     pub attacks_last_tick: HashMap<u64, Vec<Direction>>,
+    #[serde(skip)]
+    pub recently_dead: VecDeque<Creature>,
     pub tick: u64,
     pub next_creature_id: u64,
     pub total_births: u64,
@@ -68,6 +70,7 @@ impl SimulationState {
             creatures,
             creature_positions,
             attacks_last_tick: HashMap::new(),
+            recently_dead: VecDeque::new(),
             tick: 0,
             next_creature_id: config.creature.initial_population as u64,
             total_births: 0,

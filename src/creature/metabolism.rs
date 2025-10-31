@@ -107,9 +107,24 @@ mod tests {
 
         assert!(metabolism.consume_energy(50.0));
         assert_eq!(metabolism.energy(), 0.0);
-        assert!(!metabolism.is_alive());
+        // is_alive() now checks health, not energy
+        assert!(metabolism.is_alive()); // Still alive with 0 energy but full health
 
-        assert!(!metabolism.consume_energy(10.0));
+        assert!(!metabolism.consume_energy(10.0)); // Can't consume when energy is 0
+    }
+
+    #[test]
+    fn test_health_death() {
+        let mut metabolism = Metabolism::new(100.0, 200.0);
+
+        // Take damage until death
+        metabolism.take_damage(50.0);
+        assert!(metabolism.is_alive());
+        assert_eq!(metabolism.health(), 50.0);
+
+        metabolism.take_damage(50.0);
+        assert_eq!(metabolism.health(), 0.0);
+        assert!(!metabolism.is_alive()); // Dead when health reaches 0
     }
 
     #[test]

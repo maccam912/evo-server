@@ -36,7 +36,17 @@ impl SimulationState {
                         // Increment age each tick
                         creature.age += 1;
 
+                        // Check for death from old age
+                        if creature.age >= config.creature.max_age_ticks {
+                            creature.metabolism.take_damage(creature.metabolism.health());
+                        }
+
                         creature.consume_energy(config.creature.energy_cost_per_tick);
+
+                        // Check for death from zero energy (starvation)
+                        if creature.energy() <= 0.0 {
+                            creature.metabolism.take_damage(creature.metabolism.health());
+                        }
 
                         // Passive healing
                         creature.metabolism.passive_heal(

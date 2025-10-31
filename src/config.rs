@@ -34,6 +34,7 @@ pub struct CreatureConfig {
     pub energy_cost_reproduce: f64,
     pub min_reproduce_energy: f64,
     pub reproduce_cooldown_ticks: u64,
+    pub max_age_ticks: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +98,7 @@ impl Default for Config {
                 energy_cost_reproduce: 50.0,
                 min_reproduce_energy: 100.0,
                 reproduce_cooldown_ticks: 100,
+                max_age_ticks: 10000,  // ~5.5 minutes at 30 TPS
             },
             evolution: EvolutionConfig {
                 mutation_rate: 0.01,

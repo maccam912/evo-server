@@ -5,8 +5,9 @@ use crate::config::Config;
 use crate::simulation::SimulationState;
 use axum::{
     extract::{ws::WebSocket, State as AxumState, WebSocketUpgrade},
+    http::StatusCode,
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -39,6 +40,8 @@ pub async fn run_server(
     let app = Router::new()
         // WebSocket endpoint
         .route("/ws", get(websocket_handler))
+        // Restart endpoint
+        .route("/api/restart", post(restart_handler))
         // Serve static files from the "static" directory
         .nest_service("/", ServeDir::new("static"))
         .with_state(app_state);
@@ -58,6 +61,19 @@ async fn websocket_handler(
     AxumState(state): AxumState<AppState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_websocket(socket, state))
+}
+
+async fn restart_handler() -> impl IntoResponse {
+    log::warn!("Restart requested via API - shutting down process");
+
+    // Spawn a task to exit the process after a short delay
+    // This allows the HTTP response to be sent before the process exits
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        std::process::exit(0);
+    });
+
+    (StatusCode::OK, "Server restart initiated")
 }
 
 async fn handle_websocket(socket: WebSocket, app_state: AppState) {

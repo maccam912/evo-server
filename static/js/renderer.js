@@ -15,6 +15,11 @@ const RendererState = {
     isDragging: false,
     lastMouseX: 0,
     lastMouseY: 0,
+
+    // Touch state
+    isTouching: false,
+    lastTouchX: 0,
+    lastTouchY: 0,
 };
 
 // Initialize the renderer
@@ -109,6 +114,40 @@ function setupEventListeners() {
 
         // Clamp scale
         RendererState.scale = Math.max(0.1, Math.min(10, RendererState.scale));
+    });
+
+    // Touch events for mobile panning
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+            e.preventDefault();
+            RendererState.isTouching = true;
+            const touch = e.touches[0];
+            RendererState.lastTouchX = touch.clientX;
+            RendererState.lastTouchY = touch.clientY;
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+        if (RendererState.isTouching && e.touches.length === 1) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const dx = touch.clientX - RendererState.lastTouchX;
+            const dy = touch.clientY - RendererState.lastTouchY;
+            RendererState.offsetX += dx;
+            RendererState.offsetY += dy;
+            RendererState.lastTouchX = touch.clientX;
+            RendererState.lastTouchY = touch.clientY;
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+        if (e.touches.length === 0) {
+            RendererState.isTouching = false;
+        }
+    });
+
+    canvas.addEventListener('touchcancel', () => {
+        RendererState.isTouching = false;
     });
 
     // Zoom controls

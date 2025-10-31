@@ -1,0 +1,31 @@
+# Build artifacts
+target/
+*.exe
+
+# Checkpoints and logs
+checkpoints/
+*.log
+
+# Configuration files (should be mounted as volumes)
+config.json
+
+# Test directories
+test_checkpoints*/
+
+# Git
+.git/
+.gitignore
+
+# GitHub
+.github/
+
+# Documentation
+*.md
+README*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

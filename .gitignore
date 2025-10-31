@@ -1,0 +1,6 @@
+/target
+/checkpoints
+/data
+*.log
+config.json
+test_checkpoints*

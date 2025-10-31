@@ -17,6 +17,9 @@ impl SimulationState {
             let (x, y, action) = {
                 let (x, y, energy) = {
                     if let Some(creature) = self.creatures.get_mut(&id) {
+                        // Increment age each tick
+                        creature.age += 1;
+
                         creature.consume_energy(config.creature.energy_cost_per_tick);
 
                         if !creature.is_alive() {
@@ -94,6 +97,7 @@ impl SimulationState {
                             ) {
                                 new_creatures.push(offspring);
                                 self.next_creature_id += 1;
+                                self.total_births += 1;
                             }
                         }
                     }
@@ -104,6 +108,10 @@ impl SimulationState {
         for creature in new_creatures {
             self.creatures.insert(creature.id, creature);
         }
+
+        // Count deaths before removing dead creatures
+        let deaths_this_tick = self.creatures.values().filter(|c| !c.is_alive()).count() as u64;
+        self.total_deaths += deaths_this_tick;
 
         self.creatures.retain(|_, c| c.is_alive());
 

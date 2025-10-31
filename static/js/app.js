@@ -113,11 +113,9 @@ function handleFullState(message) {
     AppState.metrics = message.metrics || {};
     AppState.creatures = message.creatures || [];
 
-    // Extract world dimensions
-    if (message.world) {
-        AppState.worldWidth = message.world.width || 0;
-        AppState.worldHeight = message.world.height || 0;
-    }
+    // Extract world dimensions (sent directly in message, not nested in world object)
+    AppState.worldWidth = message.world_width || 0;
+    AppState.worldHeight = message.world_height || 0;
 
     console.log(`World size: ${AppState.worldWidth}x${AppState.worldHeight}`);
     console.log(`Creatures: ${AppState.creatures.length}`);

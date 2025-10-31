@@ -17,6 +17,7 @@ pub struct Creature {
     pub brain: NeuralNetwork,
     pub metabolism: Metabolism,
     pub last_reproduce_tick: u64,
+    pub age: u64,
 }
 
 impl Creature {
@@ -40,6 +41,7 @@ impl Creature {
             brain,
             metabolism,
             last_reproduce_tick: 0,
+            age: 0,
         }
     }
 

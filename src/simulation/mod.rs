@@ -14,6 +14,8 @@ pub struct SimulationState {
     pub creatures: HashMap<u64, Creature>,
     pub tick: u64,
     pub next_creature_id: u64,
+    pub total_births: u64,
+    pub total_deaths: u64,
 }
 
 impl SimulationState {
@@ -53,6 +55,8 @@ impl SimulationState {
             creatures,
             tick: 0,
             next_creature_id: config.creature.initial_population as u64,
+            total_births: 0,
+            total_deaths: 0,
         }
     }
 
@@ -63,7 +67,7 @@ impl SimulationState {
     pub fn metrics(&self) -> SimulationMetrics {
         let creatures = self.creatures_vec();
         let total_food = self.world.total_food();
-        SimulationMetrics::compute(self.tick, &creatures, total_food)
+        SimulationMetrics::compute(self.tick, &creatures, total_food, self.total_births, self.total_deaths)
     }
 
     pub fn apply_population_cap(creatures: &mut HashMap<u64, Creature>, max_population: usize) {

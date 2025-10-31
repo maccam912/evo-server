@@ -9,11 +9,15 @@ pub struct SimulationMetrics {
     pub avg_energy: f64,
     pub avg_generation: f64,
     pub max_generation: u64,
+    pub generation: u64,  // Alias for max_generation for UI compatibility
     pub total_food: u64,
+    pub total_births: u64,
+    pub total_deaths: u64,
+    pub avg_age: f64,
 }
 
 impl SimulationMetrics {
-    pub fn compute(tick: u64, creatures: &[Creature], total_food: u64) -> Self {
+    pub fn compute(tick: u64, creatures: &[Creature], total_food: u64, total_births: u64, total_deaths: u64) -> Self {
         let population = creatures.len();
 
         if population == 0 {
@@ -24,7 +28,11 @@ impl SimulationMetrics {
                 avg_energy: 0.0,
                 avg_generation: 0.0,
                 max_generation: 0,
+                generation: 0,
                 total_food,
+                total_births,
+                total_deaths,
+                avg_age: 0.0,
             };
         }
 
@@ -40,6 +48,9 @@ impl SimulationMetrics {
             .max()
             .unwrap_or(0);
 
+        let total_age: u64 = creatures.iter().map(|c| c.age).sum();
+        let avg_age = total_age as f64 / population as f64;
+
         Self {
             tick,
             population,
@@ -47,7 +58,11 @@ impl SimulationMetrics {
             avg_energy,
             avg_generation,
             max_generation,
+            generation: max_generation,  // Use max_generation as the display generation
             total_food,
+            total_births,
+            total_deaths,
+            avg_age,
         }
     }
 }
@@ -59,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_metrics_empty_population() {
-        let metrics = SimulationMetrics::compute(100, &[], 50);
+        let metrics = SimulationMetrics::compute(100, &[], 50, 0, 0);
 
         assert_eq!(metrics.tick, 100);
         assert_eq!(metrics.population, 0);
@@ -78,12 +93,14 @@ mod tests {
         let c2 = Creature::new(2, 1, 1, genome2, 150.0, 200.0, (8, 6, 4));
 
         let creatures = vec![c1, c2];
-        let metrics = SimulationMetrics::compute(100, &creatures, 50);
+        let metrics = SimulationMetrics::compute(100, &creatures, 50, 10, 5);
 
         assert_eq!(metrics.tick, 100);
         assert_eq!(metrics.population, 2);
         assert_eq!(metrics.total_energy, 250.0);
         assert_eq!(metrics.avg_energy, 125.0);
         assert_eq!(metrics.max_generation, 5);
+        assert_eq!(metrics.total_births, 10);
+        assert_eq!(metrics.total_deaths, 5);
     }
 }

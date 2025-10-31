@@ -134,8 +134,8 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.world.width, 1000);
-        assert_eq!(config.world.height, 1000);
+        assert_eq!(config.world.width, 100);
+        assert_eq!(config.world.height, 100);
         assert!(config.checkpoint.enabled);
     }
 

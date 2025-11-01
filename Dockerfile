@@ -18,7 +18,7 @@ FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && \
-    apt-get install -y ca-certificates && \
+    apt-get install -y ca-certificates neovim && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

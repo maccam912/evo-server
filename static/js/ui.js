@@ -228,22 +228,36 @@ function renderGenomeVisualization(container, genome) {
 // Render sensor inputs with labels
 function renderSensors(container, sensors) {
     const labels = [
-        'Energy Ratio',
-        'Nearby Food',
-        'Empty Neighbors',
-        'Food Here',
-        'Creature Density',
-        'Creature Up',
-        'Creature Down',
-        'Creature Left',
-        'Creature Right',
-        'Attack from Up',
-        'Attack from Down',
-        'Attack from Left',
-        'Attack from Right',
-        'Health Ratio',
-        'Plant Food Ratio',
-        'Meat Food Ratio'
+        'Energy Ratio',              // 0
+        'Nearby Food',               // 1
+        'Empty Neighbors',           // 2
+        'Food Here',                 // 3
+        'Creature Density (5×5)',    // 4
+        'Creature Up',               // 5
+        'Creature Down',             // 6
+        'Creature Left',             // 7
+        'Creature Right',            // 8
+        'Attack from Up',            // 9
+        'Attack from Down',          // 10
+        'Attack from Left',          // 11
+        'Attack from Right',         // 12
+        'Health Ratio',              // 13
+        'Plant Food Ratio',          // 14
+        'Meat Food Ratio',           // 15
+        'Age Ratio',                 // 16
+        'Can Reproduce',             // 17
+        'Offspring Count',           // 18
+        'Recent Damage',             // 19
+        'Dist to Top Edge',          // 20
+        'Dist to Bottom Edge',       // 21
+        'Dist to Left Edge',         // 22
+        'Dist to Right Edge',        // 23
+        'Nearest Creature Dist',     // 24
+        'Nearest Creature Energy',   // 25
+        'Nearest Creature Health',   // 26
+        'Kin Density (5×5)',         // 27
+        'Food Density (5×5)',        // 28
+        'Crowding (3×3)'             // 29
     ];
 
     container.innerHTML = '';
@@ -254,7 +268,9 @@ function renderSensors(container, sensors) {
 
         const label = document.createElement('span');
         label.className = 'sensor-label';
-        label.textContent = labels[idx] || `Input ${idx}`;
+        const labelText = labels[idx] || `Input ${idx}`;
+        label.textContent = labelText;
+        label.title = `${labelText}: ${value.toFixed(3)}`; // Tooltip
 
         const bar = document.createElement('div');
         bar.className = 'sensor-bar-container';
@@ -278,17 +294,41 @@ function renderSensors(container, sensors) {
 
 // Render neural network outputs
 function renderNeuralOutputs(container, outputs, probabilities) {
-    const labels = ['Move Up', 'Move Down', 'Move Left', 'Move Right'];
+    const labels = [
+        'Move Up',           // 0
+        'Move Down',         // 1
+        'Move Left',         // 2
+        'Move Right',        // 3
+        'Attack',            // 4
+        'Reproduce',         // 5
+        'Share Energy',      // 6
+        'Sprint Up',         // 7
+        'Sprint Down',       // 8
+        'Sprint Left',       // 9
+        'Sprint Right',      // 10
+        'Rest'               // 11
+    ];
 
     container.innerHTML = '';
+
+    // Find the highest probability action
+    const maxProbIdx = probabilities.indexOf(Math.max(...probabilities));
 
     outputs.forEach((value, idx) => {
         const outputDiv = document.createElement('div');
         outputDiv.className = 'output-item';
 
+        // Highlight the most likely action
+        if (idx === maxProbIdx) {
+            outputDiv.style.border = '2px solid #4CAF50';
+            outputDiv.style.backgroundColor = '#333';
+        }
+
         const label = document.createElement('span');
         label.className = 'output-label';
-        label.textContent = labels[idx] || `Output ${idx}`;
+        const labelText = labels[idx] || `Output ${idx}`;
+        label.textContent = idx === maxProbIdx ? `★ ${labelText}` : labelText;
+        label.title = `${labelText} - Probability: ${(probabilities[idx] * 100).toFixed(1)}%`;
 
         const bars = document.createElement('div');
         bars.className = 'output-bars';

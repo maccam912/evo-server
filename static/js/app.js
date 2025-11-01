@@ -16,6 +16,7 @@ const AppState = {
     // UI state
     selectedCreature: null,
     subscribedCreatureId: null,
+    selectedCreatureDetails: null,
 
     // Playback state
     playbackMode: 'live', // 'live' or 'paused'
@@ -107,15 +108,37 @@ function handleServerMessage(message) {
 
 // Handle creature details message
 function handleCreatureDetails(data) {
-    if (window.updateCreatureDetails) {
-        window.updateCreatureDetails(data);
+    if (AppState.playbackMode === 'paused') {
+        // Store in the latest buffered state
+        if (AppState.stateBuffer.length > 0) {
+            const latestState = AppState.stateBuffer[AppState.stateBuffer.length - 1];
+            latestState.creatureDetails = data;
+        }
+    } else {
+        // Live mode: update immediately
+        AppState.selectedCreatureDetails = data;
+        if (window.updateCreatureDetails) {
+            window.updateCreatureDetails(data);
+        }
     }
 }
 
 // Handle creature update message (real-time updates)
 function handleCreatureUpdate(message) {
-    if (window.updateCreatureDetails) {
-        window.updateCreatureDetails(message.details);
+    const details = message.details;
+
+    if (AppState.playbackMode === 'paused') {
+        // Store in the latest buffered state
+        if (AppState.stateBuffer.length > 0) {
+            const latestState = AppState.stateBuffer[AppState.stateBuffer.length - 1];
+            latestState.creatureDetails = details;
+        }
+    } else {
+        // Live mode: update immediately
+        AppState.selectedCreatureDetails = details;
+        if (window.updateCreatureDetails) {
+            window.updateCreatureDetails(details);
+        }
     }
 }
 
@@ -125,11 +148,14 @@ function handleUpdate(message) {
         metrics: message.metrics || {},
         creatures: message.creatures || [],
         food: message.food || [],
+        creatureDetails: null, // Will be populated by creature updates
     };
 
     if (AppState.playbackMode === 'paused') {
         // Add to buffer when paused
         AppState.stateBuffer.push(stateSnapshot);
+        // Update button states as new data arrives
+        updatePlaybackControls();
     } else {
         // Live mode: update immediately
         AppState.metrics = stateSnapshot.metrics;
@@ -154,6 +180,7 @@ function handleFullState(message) {
         metrics: message.metrics || {},
         creatures: message.creatures || [],
         food: message.food || [],
+        creatureDetails: null, // Will be populated by creature updates
     };
 
     // Extract world dimensions (sent directly in message, not nested in world object)
@@ -171,6 +198,8 @@ function handleFullState(message) {
     if (AppState.playbackMode === 'paused') {
         // Add to buffer when paused
         AppState.stateBuffer.push(stateSnapshot);
+        // Update button states as new data arrives
+        updatePlaybackControls();
     } else {
         // Live mode: update immediately
         AppState.metrics = stateSnapshot.metrics;
@@ -219,6 +248,7 @@ function pausePlayback() {
         metrics: AppState.metrics,
         creatures: AppState.creatures,
         food: AppState.food,
+        creatureDetails: AppState.selectedCreatureDetails,
     }];
     AppState.currentBufferIndex = 0;
 
@@ -250,6 +280,14 @@ function goLive() {
     AppState.stateBuffer = [];
     AppState.currentBufferIndex = -1;
 
+    // Re-subscribe to creature updates if a creature is selected
+    if (AppState.selectedCreature) {
+        sendMessage({
+            type: 'get_creature_details',
+            creature_id: AppState.selectedCreature.id
+        });
+    }
+
     console.log('Resumed live playback');
     updatePlaybackControls();
 }
@@ -261,6 +299,14 @@ function renderBufferedState(index) {
     AppState.metrics = state.metrics;
     AppState.creatures = state.creatures;
     AppState.food = state.food;
+
+    // Update creature details if available in this state
+    if (state.creatureDetails && AppState.selectedCreature) {
+        AppState.selectedCreatureDetails = state.creatureDetails;
+        if (window.updateCreatureDetails) {
+            window.updateCreatureDetails(state.creatureDetails);
+        }
+    }
 
     // Update UI
     if (window.updateUI) {

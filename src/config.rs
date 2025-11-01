@@ -84,8 +84,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             world: WorldConfig {
-                width: 100,
-                height: 100,
+                width: 300,
+                height: 300,
                 initial_food_density: 0.3,
                 food_regen_rate: 0.001,
                 max_food_per_cell: 10,
@@ -94,7 +94,7 @@ impl Default for Config {
             },
             creature: CreatureConfig {
                 initial_population: 100,
-                max_population: 1000,
+                max_population: 10000,
                 initial_energy: 100.0,
                 max_energy: 200.0,
                 energy_per_food: 20.0,

@@ -1,15 +1,8 @@
-mod checkpoint;
-mod config;
-mod creature;
-mod evolution;
-mod server;
-mod simulation;
-mod stats;
-mod world;
-
 use clap::Parser;
-use config::Config;
-use simulation::SimulationState;
+use evo_server::checkpoint;
+use evo_server::config::Config;
+use evo_server::server;
+use evo_server::simulation::SimulationState;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration, Instant};
@@ -38,7 +31,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Loading config from: {}", args.config);
         Config::load_from_file(&args.config)?
     } else {
-        log::info!("Config file not found, using defaults and saving to: {}", args.config);
+        log::info!(
+            "Config file not found, using defaults and saving to: {}",
+            args.config
+        );
         let config = Config::default();
         config.save_to_file(&args.config)?;
         config
@@ -70,7 +66,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 log::error!("Server error: {}", e);
             }
         });
-        log::info!("WebSocket server started on {}:{}", config.server.address, config.server.port);
+        log::info!(
+            "WebSocket server started on {}:{}",
+            config.server.address,
+            config.server.port
+        );
     }
 
     run_simulation(state, config, args.no_checkpoint).await?;

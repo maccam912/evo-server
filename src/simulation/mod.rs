@@ -2,19 +2,138 @@ pub mod tick;
 
 use crate::config::Config;
 use crate::creature::{genome::Genome, Creature};
+use crate::simulation::tick::Direction;
 use crate::stats::SimulationMetrics;
 use crate::world::World;
-use crate::simulation::tick::Direction;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+
+#[derive(Debug, Clone)]
+pub struct SpatialIndex {
+    width: usize,
+    height: usize,
+    cells: Vec<Option<u64>>,
+}
+
+impl SpatialIndex {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            cells: vec![None; width * height],
+        }
+    }
+
+    #[inline]
+    fn idx(&self, x: usize, y: usize) -> usize {
+        y * self.width + x
+    }
+
+    #[inline]
+    pub fn get(&self, x: usize, y: usize) -> Option<u64> {
+        self.cells[self.idx(x, y)]
+    }
+
+    #[inline]
+    pub fn set(&mut self, x: usize, y: usize, creature_id: u64) {
+        let idx = self.idx(x, y);
+        self.cells[idx] = Some(creature_id);
+    }
+
+    #[inline]
+    pub fn clear(&mut self, x: usize, y: usize) {
+        let idx = self.idx(x, y);
+        self.cells[idx] = None;
+    }
+
+    pub fn clear_all(&mut self) {
+        self.cells.fill(None);
+    }
+
+    pub fn iter_box(
+        &self,
+        x_min: usize,
+        y_min: usize,
+        x_max: usize,
+        y_max: usize,
+    ) -> BoundingBoxIter<'_> {
+        BoundingBoxIter {
+            index: self,
+            x: x_min,
+            y: y_min,
+            x_min,
+            x_max,
+            y_max,
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+}
+
+impl Default for SpatialIndex {
+    fn default() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            cells: Vec::new(),
+        }
+    }
+}
+
+pub struct BoundingBoxIter<'a> {
+    index: &'a SpatialIndex,
+    x: usize,
+    y: usize,
+    x_min: usize,
+    x_max: usize,
+    y_max: usize,
+}
+
+impl<'a> Iterator for BoundingBoxIter<'a> {
+    type Item = (usize, usize, u64);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.y <= self.y_max {
+            if let Some(id) = self.index.get(self.x, self.y) {
+                let result = (self.x, self.y, id);
+                self.advance();
+                return Some(result);
+            }
+            self.advance();
+        }
+        None
+    }
+}
+
+impl<'a> BoundingBoxIter<'a> {
+    fn advance(&mut self) {
+        if self.x >= self.x_max {
+            self.x = self.x_min;
+            if self.y >= self.y_max {
+                // Move beyond bounds to signal completion
+                self.y = self.y_max + 1;
+            } else {
+                self.y += 1;
+            }
+        } else {
+            self.x += 1;
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationState {
     pub world: World,
     pub creatures: HashMap<u64, Creature>,
     #[serde(skip)]
-    pub creature_positions: HashMap<(usize, usize), u64>,
+    pub creature_positions: SpatialIndex,
     #[serde(skip)]
     pub attacks_last_tick: HashMap<u64, Vec<Direction>>,
     #[serde(skip)]
@@ -28,10 +147,13 @@ pub struct SimulationState {
 impl SimulationState {
     pub fn new(config: &Config) -> Self {
         let mut world = World::new(config.world.width, config.world.height);
-        world.initialize_food(config.world.initial_food_density, config.world.max_food_per_cell);
+        world.initialize_food(
+            config.world.initial_food_density,
+            config.world.max_food_per_cell,
+        );
 
         let mut creatures = HashMap::new();
-        let mut creature_positions = HashMap::new();
+        let mut creature_positions = SpatialIndex::new(config.world.width, config.world.height);
         let mut rng = rand::thread_rng();
 
         for id in 0..config.creature.initial_population {
@@ -53,16 +175,16 @@ impl SimulationState {
                 ),
             );
 
-            creature_positions.insert((x, y), id as u64);
+            creature_positions.set(x, y, id as u64);
             creatures.insert(id as u64, creature);
         }
 
         Self::apply_population_cap(&mut creatures, config.creature.max_population);
 
         // Rebuild position index after population cap
-        let mut creature_positions = HashMap::new();
+        let mut creature_positions = SpatialIndex::new(config.world.width, config.world.height);
         for (id, creature) in &creatures {
-            creature_positions.insert((creature.x, creature.y), *id);
+            creature_positions.set(creature.x, creature.y, *id);
         }
 
         Self {
@@ -85,7 +207,13 @@ impl SimulationState {
     pub fn metrics(&self) -> SimulationMetrics {
         let creatures = self.creatures_vec();
         let total_food = self.world.total_food();
-        SimulationMetrics::compute(self.tick, &creatures, total_food, self.total_births, self.total_deaths)
+        SimulationMetrics::compute(
+            self.tick,
+            &creatures,
+            total_food,
+            self.total_births,
+            self.total_deaths,
+        )
     }
 
     pub fn apply_population_cap(creatures: &mut HashMap<u64, Creature>, max_population: usize) {
@@ -117,30 +245,45 @@ impl SimulationState {
 
     /// Get the creature ID at the specified position, if any
     pub fn creature_at(&self, x: usize, y: usize) -> Option<u64> {
-        self.creature_positions.get(&(x, y)).copied()
+        if x < self.creature_positions.width() && y < self.creature_positions.height() {
+            self.creature_positions.get(x, y)
+        } else {
+            None
+        }
     }
 
     /// Update creature position in spatial index
-    pub fn update_creature_position(&mut self, creature_id: u64, old_x: usize, old_y: usize, new_x: usize, new_y: usize) {
-        self.creature_positions.remove(&(old_x, old_y));
-        self.creature_positions.insert((new_x, new_y), creature_id);
+    pub fn update_creature_position(
+        &mut self,
+        creature_id: u64,
+        old_x: usize,
+        old_y: usize,
+        new_x: usize,
+        new_y: usize,
+    ) {
+        if old_x < self.creature_positions.width() && old_y < self.creature_positions.height() {
+            self.creature_positions.clear(old_x, old_y);
+        }
+        self.creature_positions.set(new_x, new_y, creature_id);
     }
 
     /// Add creature to spatial index
     pub fn add_creature_to_position(&mut self, creature_id: u64, x: usize, y: usize) {
-        self.creature_positions.insert((x, y), creature_id);
+        self.creature_positions.set(x, y, creature_id);
     }
 
     /// Remove creature from spatial index
     pub fn remove_creature_from_position(&mut self, x: usize, y: usize) {
-        self.creature_positions.remove(&(x, y));
+        if x < self.creature_positions.width() && y < self.creature_positions.height() {
+            self.creature_positions.clear(x, y);
+        }
     }
 
     /// Rebuild spatial index from creatures (for deserialization)
     pub fn rebuild_spatial_index(&mut self) {
-        self.creature_positions.clear();
+        self.creature_positions = SpatialIndex::new(self.world.width(), self.world.height());
         for (id, creature) in &self.creatures {
-            self.creature_positions.insert((creature.x, creature.y), *id);
+            self.creature_positions.set(creature.x, creature.y, *id);
         }
     }
 }
@@ -167,5 +310,28 @@ mod tests {
         let metrics = sim.metrics();
         assert_eq!(metrics.tick, 0);
         assert_eq!(metrics.population, config.creature.initial_population);
+    }
+
+    #[test]
+    fn test_spatial_index_basic_operations() {
+        let mut index = SpatialIndex::new(4, 3);
+        assert_eq!(index.get(1, 1), None);
+
+        index.set(1, 1, 42);
+        assert_eq!(index.get(1, 1), Some(42));
+
+        index.clear(1, 1);
+        assert_eq!(index.get(1, 1), None);
+
+        index.set(2, 2, 7);
+        index.set(3, 2, 8);
+
+        let collected: Vec<_> = index.iter_box(0, 0, 3, 2).collect();
+        assert!(collected.contains(&(2, 2, 7)));
+        assert!(collected.contains(&(3, 2, 8)));
+        assert_eq!(collected.len(), 2);
+
+        index.clear_all();
+        assert!(index.iter_box(0, 0, 3, 2).next().is_none());
     }
 }

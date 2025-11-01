@@ -16,10 +16,14 @@ pub enum Direction {
 impl SimulationState {
     pub fn tick(&mut self, config: &Config) {
         // Food regeneration
-        self.world.regenerate_food(config.world.food_regen_rate, config.world.max_food_per_cell);
+        self.world
+            .regenerate_food(config.world.food_regen_rate, config.world.max_food_per_cell);
 
         // Food aging and decay
-        self.world.age_and_decay_food(config.world.plant_decay_ticks, config.world.meat_decay_ticks);
+        self.world.age_and_decay_food(
+            config.world.plant_decay_ticks,
+            config.world.meat_decay_ticks,
+        );
 
         let mut creature_ids: Vec<u64> = self.creatures.keys().copied().collect();
         let mut rng = rand::thread_rng();
@@ -41,14 +45,18 @@ impl SimulationState {
 
                         // Check for death from old age
                         if creature.age >= config.creature.max_age_ticks {
-                            creature.metabolism.take_damage(creature.metabolism.health());
+                            creature
+                                .metabolism
+                                .take_damage(creature.metabolism.health());
                         }
 
                         creature.consume_energy(config.creature.energy_cost_per_tick);
 
                         // Check for death from zero energy (starvation)
                         if creature.energy() <= 0.0 {
-                            creature.metabolism.take_damage(creature.metabolism.health());
+                            creature
+                                .metabolism
+                                .take_damage(creature.metabolism.health());
                         }
 
                         // Passive healing
@@ -82,10 +90,29 @@ impl SimulationState {
                     self.try_eat(id, config);
                 }
                 Action::MoveUp | Action::MoveDown | Action::MoveLeft | Action::MoveRight => {
-                    self.handle_move_action(id, x, y, action, config.creature.energy_cost_move, config, &mut attacks_this_tick);
+                    self.handle_move_action(
+                        id,
+                        x,
+                        y,
+                        action,
+                        config.creature.energy_cost_move,
+                        config,
+                        &mut attacks_this_tick,
+                    );
                 }
-                Action::SprintUp | Action::SprintDown | Action::SprintLeft | Action::SprintRight => {
-                    self.handle_move_action(id, x, y, action, config.creature.energy_cost_sprint, config, &mut attacks_this_tick);
+                Action::SprintUp
+                | Action::SprintDown
+                | Action::SprintLeft
+                | Action::SprintRight => {
+                    self.handle_move_action(
+                        id,
+                        x,
+                        y,
+                        action,
+                        config.creature.energy_cost_sprint,
+                        config,
+                        &mut attacks_this_tick,
+                    );
                 }
                 Action::Attack => {
                     self.handle_attack_action(id, x, y, config, &mut attacks_this_tick);
@@ -102,13 +129,13 @@ impl SimulationState {
             }
 
             if let Some(creature) = self.creatures.get(&id) {
-                if creature.is_alive() &&
-                   creature.can_reproduce(
-                       config.creature.min_reproduce_energy,
-                       self.tick,
-                       config.creature.reproduce_cooldown_ticks,
-                   ) &&
-                   self.can_spawn_new_creature(config.creature.max_population)
+                if creature.is_alive()
+                    && creature.can_reproduce(
+                        config.creature.min_reproduce_energy,
+                        self.tick,
+                        config.creature.reproduce_cooldown_ticks,
+                    )
+                    && self.can_spawn_new_creature(config.creature.max_population)
                 {
                     let creature_x = creature.x;
                     let creature_y = creature.y;
@@ -147,7 +174,8 @@ impl SimulationState {
         }
 
         // Handle deaths: spawn meat food and update spatial index
-        let dead_creatures: Vec<(u64, usize, usize, f64)> = self.creatures
+        let dead_creatures: Vec<(u64, usize, usize, f64)> = self
+            .creatures
             .iter()
             .filter(|(_, c)| !c.is_alive())
             .map(|(id, c)| (*id, c.x, c.y, c.energy()))
@@ -158,7 +186,8 @@ impl SimulationState {
             let meat_amount = (remaining_energy / 20.0).ceil() as u32;
             if meat_amount > 0 {
                 if let Some(cell) = self.world.get_mut(x, y) {
-                    cell.add_food(meat_amount, config.world.max_food_per_cell, true); // true = meat
+                    cell.add_food(meat_amount, config.world.max_food_per_cell, true);
+                    // true = meat
                 }
             }
 
@@ -184,15 +213,23 @@ impl SimulationState {
 
         // Extinction failsafe: resurrect recently dead creatures if population reaches 0
         if self.creatures.is_empty() && !self.recently_dead.is_empty() {
-            log::warn!("EXTINCTION DETECTED at tick {}! Resurrecting {} creatures from recent deaths...",
-                       self.tick, config.creature.initial_population);
+            log::warn!(
+                "EXTINCTION DETECTED at tick {}! Resurrecting {} creatures from recent deaths...",
+                self.tick,
+                config.creature.initial_population
+            );
 
             let mut rng = rand::thread_rng();
-            let num_to_resurrect = config.creature.initial_population.min(self.recently_dead.len());
+            let num_to_resurrect = config
+                .creature
+                .initial_population
+                .min(self.recently_dead.len());
 
             // Take the most recent dead creatures
             for i in 0..num_to_resurrect {
-                if let Some(dead_creature) = self.recently_dead.get(self.recently_dead.len() - 1 - i) {
+                if let Some(dead_creature) =
+                    self.recently_dead.get(self.recently_dead.len() - 1 - i)
+                {
                     // Clone the creature with a new ID and position
                     let new_id = self.next_creature_id;
                     self.next_creature_id += 1;
@@ -230,7 +267,10 @@ impl SimulationState {
                 }
             }
 
-            log::info!("Resurrected {} creatures. Population restored!", self.creatures.len());
+            log::info!(
+                "Resurrected {} creatures. Population restored!",
+                self.creatures.len()
+            );
         }
 
         // Store attacks for next tick's sensors
@@ -239,7 +279,14 @@ impl SimulationState {
         self.tick += 1;
     }
 
-    pub fn get_sensor_inputs(&self, creature_id: u64, x: usize, y: usize, energy: f64, config: &Config) -> Vec<f64> {
+    pub fn get_sensor_inputs(
+        &self,
+        creature_id: u64,
+        x: usize,
+        y: usize,
+        energy: f64,
+        config: &Config,
+    ) -> Vec<f64> {
         let mut inputs = vec![0.0; config.evolution.neural_net_inputs];
 
         // Input 0: Energy ratio
@@ -362,7 +409,7 @@ impl SimulationState {
                 inputs[17] = if creature.can_reproduce(
                     config.creature.min_reproduce_energy,
                     self.tick,
-                    config.creature.reproduce_cooldown_ticks
+                    config.creature.reproduce_cooldown_ticks,
                 ) {
                     1.0
                 } else {
@@ -431,7 +478,8 @@ impl SimulationState {
         // Input 27: Nearby kin density (creatures with similar generation)
         if config.evolution.neural_net_inputs > 27 {
             if let Some(creature) = self.creatures.get(&creature_id) {
-                let kin_count = self.count_nearby_kin(creature_id, x, y, creature.genome.generation, 5);
+                let kin_count =
+                    self.count_nearby_kin(creature_id, x, y, creature.genome.generation, 5);
                 inputs[27] = (kin_count as f64 / 25.0).min(1.0);
             }
         }
@@ -521,7 +569,10 @@ impl SimulationState {
                         Action::MoveRight | Action::SprintRight => Direction::Left,
                         _ => unreachable!(),
                     };
-                    attacks_this_tick.entry(target_id).or_insert_with(Vec::new).push(attack_dir);
+                    attacks_this_tick
+                        .entry(target_id)
+                        .or_insert_with(Vec::new)
+                        .push(attack_dir);
                 }
             } else {
                 // No creature, check if we can move there
@@ -555,9 +606,9 @@ impl SimulationState {
         // Find adjacent creatures and attack them
         let adjacent = [
             (x, y.wrapping_sub(1), Direction::Down),  // Up
-            (x, y + 1, Direction::Up),                 // Down
-            (x.wrapping_sub(1), y, Direction::Right),  // Left
-            (x + 1, y, Direction::Left),               // Right
+            (x, y + 1, Direction::Up),                // Down
+            (x.wrapping_sub(1), y, Direction::Right), // Left
+            (x + 1, y, Direction::Left),              // Right
         ];
 
         for (nx, ny, dir) in adjacent {
@@ -566,7 +617,10 @@ impl SimulationState {
                     let damage = config.combat.damage_per_strong_attack;
                     target.metabolism.take_damage(damage);
                     target.record_damage(damage);
-                    attacks_this_tick.entry(target_id).or_insert_with(Vec::new).push(dir);
+                    attacks_this_tick
+                        .entry(target_id)
+                        .or_insert_with(Vec::new)
+                        .push(dir);
                 }
             }
         }
@@ -579,13 +633,13 @@ impl SimulationState {
         config: &Config,
     ) {
         if let Some(creature) = self.creatures.get(&id) {
-            if !creature.is_alive() ||
-               !creature.can_reproduce(
-                   config.creature.min_reproduce_energy,
-                   self.tick,
-                   config.creature.reproduce_cooldown_ticks,
-               ) ||
-               !self.can_spawn_new_creature(config.creature.max_population)
+            if !creature.is_alive()
+                || !creature.can_reproduce(
+                    config.creature.min_reproduce_energy,
+                    self.tick,
+                    config.creature.reproduce_cooldown_ticks,
+                )
+                || !self.can_spawn_new_creature(config.creature.max_population)
             {
                 return;
             }
@@ -620,13 +674,7 @@ impl SimulationState {
         }
     }
 
-    fn handle_share_energy_action(
-        &mut self,
-        id: u64,
-        x: usize,
-        y: usize,
-        config: &Config,
-    ) {
+    fn handle_share_energy_action(&mut self, id: u64, x: usize, y: usize, config: &Config) {
         let share_amount = config.creature.energy_share_amount;
 
         // Check if giver has enough energy
@@ -642,10 +690,10 @@ impl SimulationState {
 
         // Find adjacent creatures
         let adjacent_positions = [
-            (x, y.wrapping_sub(1)),  // Up
-            (x, y + 1),               // Down
-            (x.wrapping_sub(1), y),   // Left
-            (x + 1, y),               // Right
+            (x, y.wrapping_sub(1)), // Up
+            (x, y + 1),             // Down
+            (x.wrapping_sub(1), y), // Left
+            (x + 1, y),             // Right
         ];
 
         // Find first adjacent creature to share with
@@ -666,14 +714,12 @@ impl SimulationState {
         }
     }
 
-    fn handle_rest_action(
-        &mut self,
-        id: u64,
-        config: &Config,
-    ) {
+    fn handle_rest_action(&mut self, id: u64, config: &Config) {
         // Resting provides boosted healing
-        let boosted_regen = config.combat.health_regen_rate * config.creature.rest_healing_multiplier;
-        let energy_cost = config.combat.health_regen_energy_cost * config.creature.rest_energy_multiplier;
+        let boosted_regen =
+            config.combat.health_regen_rate * config.creature.rest_healing_multiplier;
+        let energy_cost =
+            config.combat.health_regen_energy_cost * config.creature.rest_energy_multiplier;
 
         if let Some(creature) = self.creatures.get_mut(&id) {
             creature.metabolism.passive_heal(boosted_regen, energy_cost);
@@ -683,44 +729,80 @@ impl SimulationState {
         self.try_eat(id, config);
     }
 
-    fn count_nearby_creatures(&self, x: usize, y: usize, radius: usize) -> usize {
+    pub fn count_nearby_creatures(&self, x: usize, y: usize, radius: usize) -> usize {
         let x_min = x.saturating_sub(radius);
-        let x_max = (x + radius).min(self.world.width() - 1);
+        let x_max = x.saturating_add(radius).min(self.world.width() - 1);
         let y_min = y.saturating_sub(radius);
-        let y_max = (y + radius).min(self.world.height() - 1);
+        let y_max = y.saturating_add(radius).min(self.world.height() - 1);
 
-        self.creatures
-            .values()
-            .filter(|c| c.x >= x_min && c.x <= x_max && c.y >= y_min && c.y <= y_max)
+        self.creature_positions
+            .iter_box(x_min, y_min, x_max, y_max)
             .count()
     }
 
-    fn find_nearest_creature(&self, self_id: u64, x: usize, y: usize) -> Option<(f64, u64)> {
-        self.creatures
-            .iter()
-            .filter(|(&id, _)| id != self_id)
-            .map(|(&id, c)| {
-                let dx = (c.x as f64 - x as f64).abs();
-                let dy = (c.y as f64 - y as f64).abs();
+    pub fn find_nearest_creature(&self, self_id: u64, x: usize, y: usize) -> Option<(f64, u64)> {
+        if self.creatures.len() <= 1 {
+            return None;
+        }
+
+        let mut best: Option<(f64, u64)> = None;
+        let max_radius = self.world.width().max(self.world.height());
+
+        for radius in 0..=max_radius {
+            let x_min = x.saturating_sub(radius);
+            let x_max = x.saturating_add(radius).min(self.world.width() - 1);
+            let y_min = y.saturating_sub(radius);
+            let y_max = y.saturating_add(radius).min(self.world.height() - 1);
+
+            for (cx, cy, id) in self.creature_positions.iter_box(x_min, y_min, x_max, y_max) {
+                if id == self_id {
+                    continue;
+                }
+
+                let dx = (cx as f64 - x as f64).abs();
+                let dy = (cy as f64 - y as f64).abs();
                 let dist = (dx * dx + dy * dy).sqrt();
-                (dist, id)
-            })
-            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+
+                match &mut best {
+                    Some((best_dist, best_id)) => {
+                        if dist < *best_dist {
+                            *best_dist = dist;
+                            *best_id = id;
+                        }
+                    }
+                    None => best = Some((dist, id)),
+                }
+            }
+
+            if best.is_some() {
+                break;
+            }
+        }
+
+        best
     }
 
-    fn count_nearby_kin(&self, self_id: u64, x: usize, y: usize, self_generation: u64, radius: usize) -> usize {
+    fn count_nearby_kin(
+        &self,
+        self_id: u64,
+        x: usize,
+        y: usize,
+        self_generation: u64,
+        radius: usize,
+    ) -> usize {
         let x_min = x.saturating_sub(radius);
-        let x_max = (x + radius).min(self.world.width() - 1);
+        let x_max = x.saturating_add(radius).min(self.world.width() - 1);
         let y_min = y.saturating_sub(radius);
-        let y_max = (y + radius).min(self.world.height() - 1);
+        let y_max = y.saturating_add(radius).min(self.world.height() - 1);
 
-        self.creatures
-            .iter()
-            .filter(|(&id, c)| {
-                id != self_id &&
-                c.x >= x_min && c.x <= x_max &&
-                c.y >= y_min && c.y <= y_max &&
-                (c.genome.generation as i64 - self_generation as i64).abs() <= 2
+        self.creature_positions
+            .iter_box(x_min, y_min, x_max, y_max)
+            .filter(|&(_, _, id)| id != self_id)
+            .filter(|&(_, _, id)| {
+                self.creatures
+                    .get(&id)
+                    .map(|c| (c.genome.generation as i64 - self_generation as i64).abs() <= 2)
+                    .unwrap_or(false)
             })
             .count()
     }
@@ -749,6 +831,7 @@ impl SimulationState {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use crate::creature::genome::Genome;
 
     #[test]
     fn test_tick_increments() {
@@ -789,7 +872,11 @@ mod tests {
 
         // Kill both creatures by dealing damage
         for creature_id in sim.creatures.keys().copied().collect::<Vec<_>>() {
-            sim.creatures.get_mut(&creature_id).unwrap().metabolism.take_damage(150.0);
+            sim.creatures
+                .get_mut(&creature_id)
+                .unwrap()
+                .metabolism
+                .take_damage(150.0);
         }
 
         // Clear the recently_dead buffer AND tick once to remove dead creatures
@@ -810,7 +897,11 @@ mod tests {
 
         // Kill all creatures by dealing damage
         for creature_id in sim.creatures.keys().copied().collect::<Vec<_>>() {
-            sim.creatures.get_mut(&creature_id).unwrap().metabolism.take_damage(150.0);
+            sim.creatures
+                .get_mut(&creature_id)
+                .unwrap()
+                .metabolism
+                .take_damage(150.0);
         }
 
         // Tick should trigger resurrection
@@ -825,5 +916,145 @@ mod tests {
             assert!(creature.energy() > 0.0);
             // Energy might vary due to metabolism, healing, and food consumption during tick
         }
+    }
+
+    #[test]
+    fn test_nearby_counts_match_naive_for_large_population() {
+        let mut config = Config::default();
+        config.world.width = 64;
+        config.world.height = 64;
+        config.creature.initial_population = 0;
+
+        let mut sim = SimulationState::new(&config);
+        let width = config.world.width;
+        let height = config.world.height;
+        let population = width * height / 2;
+
+        let genome_template = Genome {
+            genes: vec![0; config.evolution.genome_size],
+            generation: 0,
+        };
+
+        for id in 0..population {
+            let x = id % width;
+            let y = id / width;
+            let mut genome = genome_template.clone();
+            genome.generation = (id % 6) as u64;
+
+            let creature = Creature::new(
+                id as u64,
+                x,
+                y,
+                genome,
+                config.creature.initial_energy,
+                config.creature.max_energy,
+                (
+                    config.evolution.neural_net_inputs,
+                    config.evolution.neural_net_hidden,
+                    config.evolution.neural_net_outputs,
+                ),
+            );
+            sim.add_creature_to_position(creature.id, creature.x, creature.y);
+            sim.creatures.insert(creature.id, creature);
+        }
+
+        fn naive_count(sim: &SimulationState, x: usize, y: usize, radius: usize) -> usize {
+            let x_min = x.saturating_sub(radius);
+            let x_max = x.saturating_add(radius).min(sim.world.width() - 1);
+            let y_min = y.saturating_sub(radius);
+            let y_max = y.saturating_add(radius).min(sim.world.height() - 1);
+
+            sim.creatures
+                .values()
+                .filter(|c| c.x >= x_min && c.x <= x_max && c.y >= y_min && c.y <= y_max)
+                .count()
+        }
+
+        let samples = vec![(0, 0), (10, 10), (32, 32), (63, 63)];
+        for (x, y) in samples {
+            for radius in [0, 1, 5, 10, 20] {
+                let naive = naive_count(&sim, x, y, radius);
+                let optimized = sim.count_nearby_creatures(x, y, radius);
+                assert_eq!(naive, optimized);
+            }
+        }
+    }
+
+    #[test]
+    fn test_count_nearby_kin_uses_generation_window() {
+        let mut config = Config::default();
+        config.world.width = 16;
+        config.world.height = 16;
+        config.creature.initial_population = 0;
+
+        let mut sim = SimulationState::new(&config);
+
+        let base_genome = Genome {
+            genes: vec![0; config.evolution.genome_size],
+            generation: 10,
+        };
+
+        for (id, generation) in [(1, 10), (2, 11), (3, 12), (4, 15), (5, 20)] {
+            let mut genome = base_genome.clone();
+            genome.generation = generation;
+            let creature = Creature::new(
+                id,
+                id as usize,
+                id as usize,
+                genome,
+                config.creature.initial_energy,
+                config.creature.max_energy,
+                (
+                    config.evolution.neural_net_inputs,
+                    config.evolution.neural_net_hidden,
+                    config.evolution.neural_net_outputs,
+                ),
+            );
+            sim.add_creature_to_position(creature.id, creature.x, creature.y);
+            sim.creatures.insert(creature.id, creature);
+        }
+
+        let kin_count = sim.count_nearby_kin(1, 1, 1, 10, 5);
+        // Generations within +/-2: ids 2 and 3; id 1 excluded, others out of range
+        assert_eq!(kin_count, 2);
+    }
+
+    #[test]
+    fn test_find_nearest_creature_uses_grid() {
+        let mut config = Config::default();
+        config.world.width = 20;
+        config.world.height = 20;
+        config.creature.initial_population = 0;
+
+        let mut sim = SimulationState::new(&config);
+        let genome = Genome {
+            genes: vec![0; config.evolution.genome_size],
+            generation: 0,
+        };
+
+        let positions = vec![(5, 5), (10, 10), (15, 15)];
+        for (idx, (x, y)) in positions.iter().enumerate() {
+            let creature = Creature::new(
+                idx as u64,
+                *x,
+                *y,
+                genome.clone(),
+                config.creature.initial_energy,
+                config.creature.max_energy,
+                (
+                    config.evolution.neural_net_inputs,
+                    config.evolution.neural_net_hidden,
+                    config.evolution.neural_net_outputs,
+                ),
+            );
+            sim.add_creature_to_position(creature.id, creature.x, creature.y);
+            sim.creatures.insert(creature.id, creature);
+        }
+
+        let nearest = sim.find_nearest_creature(0, 5, 5);
+        assert_eq!(nearest.unwrap().1, 1);
+
+        let nearest_from_middle = sim.find_nearest_creature(1, 10, 10).unwrap();
+        assert_eq!(nearest_from_middle.1, 0);
     }
 }

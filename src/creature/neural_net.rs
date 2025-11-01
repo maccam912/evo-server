@@ -1,5 +1,6 @@
 use super::genome::Genome;
 use serde::{Deserialize, Serialize};
+use rand::Rng;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NeuralNetwork {
@@ -74,20 +75,45 @@ impl NeuralNetwork {
     pub fn decide_action(&self, inputs: &[f64]) -> Action {
         let outputs = self.forward(inputs);
 
-        let max_idx = outputs
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(idx, _)| idx)
-            .unwrap_or(0);
+        // Compute softmax probabilities
+        let max_output = outputs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let exp_outputs: Vec<f64> = outputs.iter().map(|&x| (x - max_output).exp()).collect();
+        let sum_exp: f64 = exp_outputs.iter().sum();
+        let probabilities: Vec<f64> = exp_outputs.iter().map(|&x| x / sum_exp).collect();
 
-        match max_idx {
-            0 => Action::MoveUp,
-            1 => Action::MoveDown,
-            2 => Action::MoveLeft,
-            3 => Action::MoveRight,
-            _ => Action::Stay,
+        // Sample action based on probabilities
+        let mut rng = rand::thread_rng();
+        let random_value: f64 = rng.gen(); // 0.0 to 1.0
+
+        let mut cumulative = 0.0;
+        for (i, &prob) in probabilities.iter().enumerate() {
+            cumulative += prob;
+            if random_value < cumulative {
+                return match i {
+                    0 => Action::MoveUp,
+                    1 => Action::MoveDown,
+                    2 => Action::MoveLeft,
+                    3 => Action::MoveRight,
+                    _ => Action::Stay,
+                };
+            }
         }
+
+        // Fallback (should never reach here)
+        Action::Stay
+    }
+
+    /// Get the raw outputs and softmax probabilities for the given inputs
+    pub fn get_outputs_and_probabilities(&self, inputs: &[f64]) -> (Vec<f64>, Vec<f64>) {
+        let outputs = self.forward(inputs);
+
+        // Compute softmax probabilities
+        let max_output = outputs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let exp_outputs: Vec<f64> = outputs.iter().map(|&x| (x - max_output).exp()).collect();
+        let sum_exp: f64 = exp_outputs.iter().sum();
+        let probabilities: Vec<f64> = exp_outputs.iter().map(|&x| x / sum_exp).collect();
+
+        (outputs, probabilities)
     }
 }
 

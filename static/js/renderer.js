@@ -229,6 +229,11 @@ function renderWorld(appState) {
     // Draw grid
     drawGrid(ctx);
 
+    // Draw food
+    if (appState.food && appState.food.length > 0) {
+        drawFood(ctx, appState.food);
+    }
+
     // Draw creatures
     if (appState.creatures && appState.creatures.length > 0) {
         drawCreatures(ctx, appState.creatures);
@@ -267,6 +272,34 @@ function drawGrid(ctx) {
     ctx.strokeStyle = '#3a3a3a';
     ctx.lineWidth = 2 / RendererState.scale;
     ctx.strokeRect(0, 0, width * cellSize, height * cellSize);
+}
+
+// Draw food
+function drawFood(ctx, food) {
+    const cellSize = RendererState.cellSize;
+
+    food.forEach(f => {
+        // Different colors for plant vs meat food
+        // Plant food: green, Meat food: red/brown
+        const baseColor = f.is_meat ? [180, 60, 50] : [100, 200, 80]; // RGB
+
+        // Opacity based on amount (0-255 scale)
+        const opacity = Math.min(1.0, f.amount / 100);
+
+        // Size based on amount
+        const radius = cellSize * 0.3 * Math.min(1.5, (f.amount / 50));
+
+        ctx.fillStyle = `rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, ${opacity})`;
+        ctx.beginPath();
+        ctx.arc(
+            f.x * cellSize,
+            f.y * cellSize,
+            radius,
+            0,
+            2 * Math.PI
+        );
+        ctx.fill();
+    });
 }
 
 // Draw creatures

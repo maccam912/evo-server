@@ -81,6 +81,7 @@ async fn handle_websocket(socket: WebSocket, app_state: AppState) {
     let mut update_interval = interval(Duration::from_millis(
         1000 / app_state.config.server.update_rate_hz,
     ));
+    let mut subscribed_creature_id: Option<u64> = None;
 
     loop {
         tokio::select! {
@@ -95,6 +96,16 @@ async fn handle_websocket(socket: WebSocket, app_state: AppState) {
                     if sender.send(axum::extract::ws::Message::Text(json)).await.is_err() {
                         log::info!("Client disconnected");
                         break;
+                    }
+                }
+
+                // Send creature updates if subscribed
+                if let Some(creature_id) = subscribed_creature_id {
+                    if let Some(details) = get_creature_details(&state, creature_id, &app_state.config) {
+                        let update_msg = ServerMessage::CreatureUpdate { details };
+                        if let Ok(json) = serde_json::to_string(&update_msg) {
+                            let _ = sender.send(axum::extract::ws::Message::Text(json)).await;
+                        }
                     }
                 }
             }
@@ -117,6 +128,18 @@ async fn handle_websocket(socket: WebSocket, app_state: AppState) {
                                 ClientMessage::GetRegion { .. } => {
                                     log::warn!("GetRegion not yet implemented");
                                 }
+                                ClientMessage::GetCreatureDetails { creature_id } => {
+                                    let state = app_state.stream.get_state().await;
+                                    if let Some(details) = get_creature_details(&state, creature_id, &app_state.config) {
+                                        let message = ServerMessage::CreatureDetails(details);
+                                        if let Ok(json) = serde_json::to_string(&message) {
+                                            let _ = sender.send(axum::extract::ws::Message::Text(json)).await;
+                                        }
+                                    }
+                                }
+                                ClientMessage::SubscribeCreature { creature_id } => {
+                                    subscribed_creature_id = creature_id;
+                                }
                             }
                         }
                     }
@@ -135,4 +158,30 @@ async fn handle_websocket(socket: WebSocket, app_state: AppState) {
     }
 
     log::info!("WebSocket connection closed");
+}
+
+fn get_creature_details(
+    state: &crate::simulation::SimulationState,
+    creature_id: u64,
+    config: &Config,
+) -> Option<protocol::CreatureDetails> {
+    let creature = state.creatures.get(&creature_id)?;
+
+    let sensor_inputs = state.get_sensor_inputs(
+        creature_id,
+        creature.x,
+        creature.y,
+        creature.energy(),
+        config,
+    );
+
+    let (network_outputs, network_probabilities) = creature.brain.get_outputs_and_probabilities(&sensor_inputs);
+
+    Some(protocol::CreatureDetails {
+        id: creature_id,
+        genome: creature.genome.genes.clone(),
+        sensor_inputs,
+        network_outputs,
+        network_probabilities,
+    })
 }

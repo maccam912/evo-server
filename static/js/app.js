@@ -10,10 +10,12 @@ const AppState = {
     worldWidth: 0,
     worldHeight: 0,
     creatures: [],
+    food: [],
     metrics: {},
 
     // UI state
     selectedCreature: null,
+    subscribedCreatureId: null,
 };
 
 // WebSocket connection
@@ -87,8 +89,28 @@ function handleServerMessage(message) {
         case 'world_region':
             console.log('Received world region (not implemented)');
             break;
+        case 'creature_details':
+            handleCreatureDetails(message);
+            break;
+        case 'creature_update':
+            handleCreatureUpdate(message);
+            break;
         default:
             console.warn('Unknown message type:', message.type);
+    }
+}
+
+// Handle creature details message
+function handleCreatureDetails(data) {
+    if (window.updateCreatureDetails) {
+        window.updateCreatureDetails(data);
+    }
+}
+
+// Handle creature update message (real-time updates)
+function handleCreatureUpdate(message) {
+    if (window.updateCreatureDetails) {
+        window.updateCreatureDetails(message.details);
     }
 }
 
@@ -112,6 +134,7 @@ function handleUpdate(message) {
 function handleFullState(message) {
     AppState.metrics = message.metrics || {};
     AppState.creatures = message.creatures || [];
+    AppState.food = message.food || [];
 
     // Extract world dimensions (sent directly in message, not nested in world object)
     AppState.worldWidth = message.world_width || 0;
@@ -159,6 +182,20 @@ function updateConnectionStatus(status) {
 // Creature selection
 function selectCreature(creature) {
     AppState.selectedCreature = creature;
+    AppState.subscribedCreatureId = creature.id;
+
+    // Request detailed creature data
+    sendMessage({
+        type: 'get_creature_details',
+        creature_id: creature.id
+    });
+
+    // Subscribe to real-time updates for this creature
+    sendMessage({
+        type: 'subscribe_creature',
+        creature_id: creature.id
+    });
+
     if (window.showCreatureInspector) {
         window.showCreatureInspector(creature);
     }
@@ -166,6 +203,14 @@ function selectCreature(creature) {
 
 function deselectCreature() {
     AppState.selectedCreature = null;
+    AppState.subscribedCreatureId = null;
+
+    // Unsubscribe from creature updates
+    sendMessage({
+        type: 'subscribe_creature',
+        creature_id: null
+    });
+
     if (window.hideCreatureInspector) {
         window.hideCreatureInspector();
     }

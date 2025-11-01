@@ -453,3 +453,124 @@ main {
         min-height: 44px;
     }
 }
+
+/* Genome Visualization */
+.genome-visual {
+    display: flex;
+    gap: 2px;
+    height: 100px;
+    align-items: flex-end;
+    padding: 10px;
+    background-color: #1a1a1a;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.genome-bar {
+    flex: 1;
+    min-width: 2px;
+    border-radius: 2px 2px 0 0;
+    transition: opacity 0.2s;
+}
+
+.genome-bar:hover {
+    opacity: 0.8;
+}
+
+/* Sensors Display */
+.sensors-display {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.sensor-item {
+    display: grid;
+    grid-template-columns: 140px 1fr 60px;
+    align-items: center;
+    gap: 8px;
+    padding: 4px;
+    background-color: #2a2a2a;
+    border-radius: 4px;
+}
+
+.sensor-label {
+    font-size: 0.85rem;
+    color: #bbb;
+}
+
+.sensor-bar-container {
+    height: 16px;
+    background-color: #1a1a1a;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+}
+
+.sensor-bar-fill {
+    height: 100%;
+    transition: width 0.1s ease;
+}
+
+.sensor-value {
+    font-size: 0.8rem;
+    font-family: 'Courier New', monospace;
+    text-align: right;
+    color: #ddd;
+}
+
+/* Neural Network Outputs */
+.outputs-display {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.output-item {
+    background-color: #2a2a2a;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.output-label {
+    display: block;
+    font-size: 0.9rem;
+    color: #bbb;
+    margin-bottom: 6px;
+    font-weight: bold;
+}
+
+.output-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.output-bar-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.output-bar-fill {
+    height: 20px;
+    border-radius: 4px;
+    transition: width 0.1s ease;
+}
+
+.output-bar-fill.raw-output {
+    background: linear-gradient(90deg, #2196F3, #64B5F6);
+}
+
+.output-bar-fill.probability {
+    background: linear-gradient(90deg, #4CAF50, #81C784);
+}
+
+.output-value {
+    font-size: 0.85rem;
+    font-family: 'Courier New', monospace;
+    color: #ddd;
+    min-width: 50px;
+}

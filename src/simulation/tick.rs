@@ -260,7 +260,7 @@ impl SimulationState {
         self.tick += 1;
     }
 
-    fn get_sensor_inputs(&self, creature_id: u64, x: usize, y: usize, energy: f64, config: &Config) -> Vec<f64> {
+    pub fn get_sensor_inputs(&self, creature_id: u64, x: usize, y: usize, energy: f64, config: &Config) -> Vec<f64> {
         let mut inputs = vec![0.0; config.evolution.neural_net_inputs];
 
         // Input 0: Energy ratio

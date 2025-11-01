@@ -112,7 +112,7 @@ impl Default for Config {
             evolution: EvolutionConfig {
                 mutation_rate: 0.01,
                 genome_size: 400,       // Expanded for ambitious sensor/action set
-                neural_net_inputs: 30,  // 16 original + 14 new sensors
+                neural_net_inputs: 34,  // 16 original + 14 sensors + 4 directional food sensors
                 neural_net_hidden: 8,   // Increased for more complexity
                 neural_net_outputs: 12, // 4 moves + 8 new actions
             },

@@ -508,6 +508,36 @@ impl SimulationState {
             inputs[29] = (local_creatures as f64 / 9.0).min(1.0);
         }
 
+        // Inputs 30-33: Food detected in [Up, Down, Left, Right]
+        if config.evolution.neural_net_inputs > 30 {
+            if let Some(cell) = self.world.get(x, y.wrapping_sub(1)) {
+                if cell.is_food() {
+                    inputs[30] = 1.0; // Up
+                }
+            }
+        }
+        if config.evolution.neural_net_inputs > 31 {
+            if let Some(cell) = self.world.get(x, y + 1) {
+                if cell.is_food() {
+                    inputs[31] = 1.0; // Down
+                }
+            }
+        }
+        if config.evolution.neural_net_inputs > 32 {
+            if let Some(cell) = self.world.get(x.wrapping_sub(1), y) {
+                if cell.is_food() {
+                    inputs[32] = 1.0; // Left
+                }
+            }
+        }
+        if config.evolution.neural_net_inputs > 33 {
+            if let Some(cell) = self.world.get(x + 1, y) {
+                if cell.is_food() {
+                    inputs[33] = 1.0; // Right
+                }
+            }
+        }
+
         inputs
     }
 

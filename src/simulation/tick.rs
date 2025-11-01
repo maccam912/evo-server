@@ -4,6 +4,8 @@ use crate::creature::{neural_net::Action, Creature};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashMap;
+#[cfg(feature = "rayon")]
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
@@ -13,195 +15,115 @@ pub enum Direction {
     Right,
 }
 
+#[allow(dead_code)]
+#[derive(Clone)]
+struct CreatureSnapshot {
+    id: u64,
+    position: (usize, usize),
+    energy: f64,
+    recent_attacks: Vec<Direction>,
+}
+
+#[derive(Clone)]
+struct ActionPlan {
+    creature_id: u64,
+    action: Action,
+    energy_delta: f64,
+}
+
 impl SimulationState {
     pub fn tick(&mut self, config: &Config) {
         // Food regeneration
-        self.world.regenerate_food(config.world.food_regen_rate, config.world.max_food_per_cell);
+        self.world
+            .regenerate_food(config.world.food_regen_rate, config.world.max_food_per_cell);
 
         // Food aging and decay
-        self.world.age_and_decay_food(config.world.plant_decay_ticks, config.world.meat_decay_ticks);
+        self.world.age_and_decay_food(
+            config.world.plant_decay_ticks,
+            config.world.meat_decay_ticks,
+        );
 
         let mut creature_ids: Vec<u64> = self.creatures.keys().copied().collect();
         let mut rng = rand::thread_rng();
         creature_ids.shuffle(&mut rng);
 
-        let mut new_creatures = Vec::new();
-        // Track attacks this tick: victim_id -> attacker_direction
+        let snapshots = self.build_snapshots(&creature_ids, config);
+
+        #[cfg(feature = "rayon")]
+        let planning_start = Instant::now();
+
+        let plans = self.evaluate_action_plans(&snapshots, config);
+
+        #[cfg(feature = "rayon")]
+        log::debug!(
+            "Planned {} creature actions in {:?}",
+            plans.len(),
+            planning_start.elapsed()
+        );
+
         let mut attacks_this_tick: HashMap<u64, Vec<Direction>> = HashMap::new();
+        let new_creatures = self.apply_action_plans(&plans, config, &mut attacks_this_tick);
 
-        for id in creature_ids {
-            let (x, y, action) = {
-                let (x, y, energy) = {
-                    if let Some(creature) = self.creatures.get_mut(&id) {
-                        // Increment age each tick
-                        creature.age += 1;
-
-                        // Decay damage memory (90% decay per tick)
-                        creature.decay_damage_memory(0.9);
-
-                        // Check for death from old age
-                        if creature.age >= config.creature.max_age_ticks {
-                            creature.metabolism.take_damage(creature.metabolism.health());
-                        }
-
-                        creature.consume_energy(config.creature.energy_cost_per_tick);
-
-                        // Check for death from zero energy (starvation)
-                        if creature.energy() <= 0.0 {
-                            creature.metabolism.take_damage(creature.metabolism.health());
-                        }
-
-                        // Passive healing
-                        creature.metabolism.passive_heal(
-                            config.combat.health_regen_rate,
-                            config.combat.health_regen_energy_cost,
-                        );
-
-                        if !creature.is_alive() {
-                            continue;
-                        }
-
-                        (creature.x, creature.y, creature.energy())
-                    } else {
-                        continue;
-                    }
-                };
-
-                let inputs = self.get_sensor_inputs(id, x, y, energy, config);
-                let action = if let Some(creature) = self.creatures.get(&id) {
-                    creature.decide_action(&inputs)
-                } else {
-                    continue;
-                };
-
-                (x, y, action)
-            };
-
-            match action {
-                Action::Stay => {
-                    self.try_eat(id, config);
-                }
-                Action::MoveUp | Action::MoveDown | Action::MoveLeft | Action::MoveRight => {
-                    self.handle_move_action(id, x, y, action, config.creature.energy_cost_move, config, &mut attacks_this_tick);
-                }
-                Action::SprintUp | Action::SprintDown | Action::SprintLeft | Action::SprintRight => {
-                    self.handle_move_action(id, x, y, action, config.creature.energy_cost_sprint, config, &mut attacks_this_tick);
-                }
-                Action::Attack => {
-                    self.handle_attack_action(id, x, y, config, &mut attacks_this_tick);
-                }
-                Action::Reproduce => {
-                    self.handle_reproduce_action(id, &mut new_creatures, config);
-                }
-                Action::ShareEnergy => {
-                    self.handle_share_energy_action(id, x, y, config);
-                }
-                Action::Rest => {
-                    self.handle_rest_action(id, config);
-                }
-            }
-
-            if let Some(creature) = self.creatures.get(&id) {
-                if creature.is_alive() &&
-                   creature.can_reproduce(
-                       config.creature.min_reproduce_energy,
-                       self.tick,
-                       config.creature.reproduce_cooldown_ticks,
-                   ) &&
-                   self.can_spawn_new_creature(config.creature.max_population)
-                {
-                    let creature_x = creature.x;
-                    let creature_y = creature.y;
-
-                    if let Some(target_pos) = self.find_empty_neighbor(creature_x, creature_y) {
-                        if let Some(parent) = self.creatures.get_mut(&id) {
-                            if let Some(offspring) = parent.reproduce(
-                                self.next_creature_id,
-                                target_pos.0,
-                                target_pos.1,
-                                config.evolution.mutation_rate,
-                                config.creature.energy_cost_reproduce,
-                                config.creature.initial_energy,
-                                config.creature.max_energy,
-                                (
-                                    config.evolution.neural_net_inputs,
-                                    config.evolution.neural_net_hidden,
-                                    config.evolution.neural_net_outputs,
-                                ),
-                                self.tick,
-                            ) {
-                                new_creatures.push(offspring);
-                                self.next_creature_id += 1;
-                                self.total_births += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add new creatures and update spatial index
         for creature in new_creatures {
             self.add_creature_to_position(creature.id, creature.x, creature.y);
             self.creatures.insert(creature.id, creature);
         }
 
         // Handle deaths: spawn meat food and update spatial index
-        let dead_creatures: Vec<(u64, usize, usize, f64)> = self.creatures
+        let dead_creatures: Vec<(u64, usize, usize, f64)> = self
+            .creatures
             .iter()
             .filter(|(_, c)| !c.is_alive())
             .map(|(id, c)| (*id, c.x, c.y, c.energy()))
             .collect();
 
         for (_dead_id, x, y, remaining_energy) in dead_creatures {
-            // Spawn meat food based on remaining energy
             let meat_amount = (remaining_energy / 20.0).ceil() as u32;
             if meat_amount > 0 {
                 if let Some(cell) = self.world.get_mut(x, y) {
-                    cell.add_food(meat_amount, config.world.max_food_per_cell, true); // true = meat
+                    cell.add_food(meat_amount, config.world.max_food_per_cell, true);
                 }
             }
 
-            // Remove from spatial index
             self.remove_creature_from_position(x, y);
         }
 
-        // Save dying creatures to buffer before removal (for extinction failsafe)
         for creature in self.creatures.values() {
             if !creature.is_alive() {
                 self.recently_dead.push_back(creature.clone());
-                // Keep buffer size reasonable (last 100 dead creatures)
                 if self.recently_dead.len() > 100 {
                     self.recently_dead.pop_front();
                 }
             }
         }
 
-        // Count and remove dead creatures
         let deaths_this_tick = self.creatures.values().filter(|c| !c.is_alive()).count() as u64;
         self.total_deaths += deaths_this_tick;
         self.creatures.retain(|_, c| c.is_alive());
 
-        // Extinction failsafe: resurrect recently dead creatures if population reaches 0
         if self.creatures.is_empty() && !self.recently_dead.is_empty() {
-            log::warn!("EXTINCTION DETECTED at tick {}! Resurrecting {} creatures from recent deaths...",
-                       self.tick, config.creature.initial_population);
+            log::warn!(
+                "EXTINCTION DETECTED at tick {}! Resurrecting {} creatures from recent deaths...",
+                self.tick,
+                config.creature.initial_population
+            );
 
             let mut rng = rand::thread_rng();
-            let num_to_resurrect = config.creature.initial_population.min(self.recently_dead.len());
+            let num_to_resurrect = config
+                .creature
+                .initial_population
+                .min(self.recently_dead.len());
 
-            // Take the most recent dead creatures
             for i in 0..num_to_resurrect {
-                if let Some(dead_creature) = self.recently_dead.get(self.recently_dead.len() - 1 - i) {
-                    // Clone the creature with a new ID and position
+                if let Some(dead_creature) =
+                    self.recently_dead.get(self.recently_dead.len() - 1 - i)
+                {
                     let new_id = self.next_creature_id;
                     self.next_creature_id += 1;
 
-                    // Find a random empty position
                     let mut new_x = rng.gen_range(0..self.world.width());
                     let mut new_y = rng.gen_range(0..self.world.height());
 
-                    // Try a few times to find unoccupied space
                     for _ in 0..10 {
                         if self.creature_at(new_x, new_y).is_none() {
                             break;
@@ -210,7 +132,6 @@ impl SimulationState {
                         new_y = rng.gen_range(0..self.world.height());
                     }
 
-                    // Create resurrected creature with full health and energy
                     let resurrected = Creature::new(
                         new_id,
                         new_x,
@@ -230,16 +151,244 @@ impl SimulationState {
                 }
             }
 
-            log::info!("Resurrected {} creatures. Population restored!", self.creatures.len());
+            log::info!(
+                "Resurrected {} creatures. Population restored!",
+                self.creatures.len()
+            );
         }
 
-        // Store attacks for next tick's sensors
         self.attacks_last_tick = attacks_this_tick;
 
         self.tick += 1;
     }
 
-    pub fn get_sensor_inputs(&self, creature_id: u64, x: usize, y: usize, energy: f64, config: &Config) -> Vec<f64> {
+    fn build_snapshots(&mut self, creature_ids: &[u64], config: &Config) -> Vec<CreatureSnapshot> {
+        let mut snapshots = Vec::with_capacity(creature_ids.len());
+        for &id in creature_ids {
+            if let Some(snapshot) = self.prepare_creature_snapshot(id, config) {
+                snapshots.push(snapshot);
+            }
+        }
+        snapshots
+    }
+
+    fn prepare_creature_snapshot(&mut self, id: u64, config: &Config) -> Option<CreatureSnapshot> {
+        let creature = self.creatures.get_mut(&id)?;
+        creature.age += 1;
+        creature.decay_damage_memory(0.9);
+
+        if creature.age >= config.creature.max_age_ticks {
+            let health = creature.metabolism.health();
+            creature.metabolism.take_damage(health);
+        }
+
+        creature.consume_energy(config.creature.energy_cost_per_tick);
+
+        if creature.energy() <= 0.0 {
+            let health = creature.metabolism.health();
+            creature.metabolism.take_damage(health);
+        }
+
+        creature.metabolism.passive_heal(
+            config.combat.health_regen_rate,
+            config.combat.health_regen_energy_cost,
+        );
+
+        if !creature.is_alive() {
+            return None;
+        }
+
+        let recent_attacks = self.attacks_last_tick.get(&id).cloned().unwrap_or_default();
+
+        Some(CreatureSnapshot {
+            id,
+            position: (creature.x, creature.y),
+            energy: creature.energy(),
+            recent_attacks,
+        })
+    }
+
+    fn evaluate_action_plans(
+        &self,
+        snapshots: &[CreatureSnapshot],
+        config: &Config,
+    ) -> Vec<ActionPlan> {
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            snapshots
+                .par_iter()
+                .map(|snapshot| self.plan_action(snapshot, config))
+                .collect()
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            snapshots
+                .iter()
+                .map(|snapshot| self.plan_action(snapshot, config))
+                .collect()
+        }
+    }
+
+    fn plan_action(&self, snapshot: &CreatureSnapshot, config: &Config) -> ActionPlan {
+        let inputs = self.get_sensor_inputs(
+            snapshot.id,
+            snapshot.position.0,
+            snapshot.position.1,
+            snapshot.energy,
+            config,
+        );
+
+        let action = self
+            .creatures
+            .get(&snapshot.id)
+            .map(|creature| creature.decide_action(&inputs))
+            .unwrap_or(Action::Stay);
+
+        let energy_delta = Self::estimate_energy_delta(action, config);
+
+        ActionPlan {
+            creature_id: snapshot.id,
+            action,
+            energy_delta,
+        }
+    }
+
+    fn estimate_energy_delta(action: Action, config: &Config) -> f64 {
+        match action {
+            Action::MoveUp | Action::MoveDown | Action::MoveLeft | Action::MoveRight => {
+                -config.creature.energy_cost_move
+            }
+            Action::SprintUp | Action::SprintDown | Action::SprintLeft | Action::SprintRight => {
+                -config.creature.energy_cost_sprint
+            }
+            Action::Reproduce => -config.creature.energy_cost_reproduce,
+            Action::ShareEnergy => -config.creature.energy_share_amount,
+            Action::Rest => {
+                -config.combat.health_regen_energy_cost * config.creature.rest_energy_multiplier
+            }
+            _ => 0.0,
+        }
+    }
+
+    fn apply_action_plans(
+        &mut self,
+        plans: &[ActionPlan],
+        config: &Config,
+        attacks_this_tick: &mut HashMap<u64, Vec<Direction>>,
+    ) -> Vec<Creature> {
+        let mut new_creatures = Vec::new();
+
+        for plan in plans {
+            let (x, y) = match self.creatures.get(&plan.creature_id) {
+                Some(creature) if creature.is_alive() => (creature.x, creature.y),
+                _ => continue,
+            };
+
+            match plan.action {
+                Action::Stay => {
+                    self.try_eat(plan.creature_id, config);
+                }
+                Action::MoveUp
+                | Action::MoveDown
+                | Action::MoveLeft
+                | Action::MoveRight
+                | Action::SprintUp
+                | Action::SprintDown
+                | Action::SprintLeft
+                | Action::SprintRight => {
+                    let energy_cost = if plan.energy_delta < 0.0 {
+                        -plan.energy_delta
+                    } else if plan.action.is_sprint() {
+                        config.creature.energy_cost_sprint
+                    } else {
+                        config.creature.energy_cost_move
+                    };
+                    self.handle_move_action(
+                        plan.creature_id,
+                        x,
+                        y,
+                        plan.action,
+                        energy_cost,
+                        config,
+                        attacks_this_tick,
+                    );
+                }
+                Action::Attack => {
+                    self.handle_attack_action(plan.creature_id, x, y, config, attacks_this_tick);
+                }
+                Action::Reproduce => {
+                    self.handle_reproduce_action(plan.creature_id, &mut new_creatures, config);
+                }
+                Action::ShareEnergy => {
+                    self.handle_share_energy_action(plan.creature_id, x, y, config);
+                }
+                Action::Rest => {
+                    self.handle_rest_action(plan.creature_id, config);
+                }
+            }
+
+            self.handle_post_action_reproduction(plan.creature_id, &mut new_creatures, config);
+        }
+
+        new_creatures
+    }
+
+    fn handle_post_action_reproduction(
+        &mut self,
+        id: u64,
+        new_creatures: &mut Vec<Creature>,
+        config: &Config,
+    ) {
+        if let Some(creature) = self.creatures.get(&id) {
+            if creature.is_alive()
+                && creature.can_reproduce(
+                    config.creature.min_reproduce_energy,
+                    self.tick,
+                    config.creature.reproduce_cooldown_ticks,
+                )
+                && self.can_spawn_new_creature(config.creature.max_population)
+            {
+                let creature_x = creature.x;
+                let creature_y = creature.y;
+
+                if let Some(target_pos) = self.find_empty_neighbor(creature_x, creature_y) {
+                    if let Some(parent) = self.creatures.get_mut(&id) {
+                        if let Some(offspring) = parent.reproduce(
+                            self.next_creature_id,
+                            target_pos.0,
+                            target_pos.1,
+                            config.evolution.mutation_rate,
+                            config.creature.energy_cost_reproduce,
+                            config.creature.initial_energy,
+                            config.creature.max_energy,
+                            (
+                                config.evolution.neural_net_inputs,
+                                config.evolution.neural_net_hidden,
+                                config.evolution.neural_net_outputs,
+                            ),
+                            self.tick,
+                        ) {
+                            parent.increment_offspring();
+                            new_creatures.push(offspring);
+                            self.next_creature_id += 1;
+                            self.total_births += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn get_sensor_inputs(
+        &self,
+        creature_id: u64,
+        x: usize,
+        y: usize,
+        energy: f64,
+        config: &Config,
+    ) -> Vec<f64> {
         let mut inputs = vec![0.0; config.evolution.neural_net_inputs];
 
         // Input 0: Energy ratio
@@ -362,7 +511,7 @@ impl SimulationState {
                 inputs[17] = if creature.can_reproduce(
                     config.creature.min_reproduce_energy,
                     self.tick,
-                    config.creature.reproduce_cooldown_ticks
+                    config.creature.reproduce_cooldown_ticks,
                 ) {
                     1.0
                 } else {
@@ -431,7 +580,8 @@ impl SimulationState {
         // Input 27: Nearby kin density (creatures with similar generation)
         if config.evolution.neural_net_inputs > 27 {
             if let Some(creature) = self.creatures.get(&creature_id) {
-                let kin_count = self.count_nearby_kin(creature_id, x, y, creature.genome.generation, 5);
+                let kin_count =
+                    self.count_nearby_kin(creature_id, x, y, creature.genome.generation, 5);
                 inputs[27] = (kin_count as f64 / 25.0).min(1.0);
             }
         }
@@ -521,7 +671,10 @@ impl SimulationState {
                         Action::MoveRight | Action::SprintRight => Direction::Left,
                         _ => unreachable!(),
                     };
-                    attacks_this_tick.entry(target_id).or_insert_with(Vec::new).push(attack_dir);
+                    attacks_this_tick
+                        .entry(target_id)
+                        .or_insert_with(Vec::new)
+                        .push(attack_dir);
                 }
             } else {
                 // No creature, check if we can move there
@@ -555,9 +708,9 @@ impl SimulationState {
         // Find adjacent creatures and attack them
         let adjacent = [
             (x, y.wrapping_sub(1), Direction::Down),  // Up
-            (x, y + 1, Direction::Up),                 // Down
-            (x.wrapping_sub(1), y, Direction::Right),  // Left
-            (x + 1, y, Direction::Left),               // Right
+            (x, y + 1, Direction::Up),                // Down
+            (x.wrapping_sub(1), y, Direction::Right), // Left
+            (x + 1, y, Direction::Left),              // Right
         ];
 
         for (nx, ny, dir) in adjacent {
@@ -566,7 +719,10 @@ impl SimulationState {
                     let damage = config.combat.damage_per_strong_attack;
                     target.metabolism.take_damage(damage);
                     target.record_damage(damage);
-                    attacks_this_tick.entry(target_id).or_insert_with(Vec::new).push(dir);
+                    attacks_this_tick
+                        .entry(target_id)
+                        .or_insert_with(Vec::new)
+                        .push(dir);
                 }
             }
         }
@@ -579,13 +735,13 @@ impl SimulationState {
         config: &Config,
     ) {
         if let Some(creature) = self.creatures.get(&id) {
-            if !creature.is_alive() ||
-               !creature.can_reproduce(
-                   config.creature.min_reproduce_energy,
-                   self.tick,
-                   config.creature.reproduce_cooldown_ticks,
-               ) ||
-               !self.can_spawn_new_creature(config.creature.max_population)
+            if !creature.is_alive()
+                || !creature.can_reproduce(
+                    config.creature.min_reproduce_energy,
+                    self.tick,
+                    config.creature.reproduce_cooldown_ticks,
+                )
+                || !self.can_spawn_new_creature(config.creature.max_population)
             {
                 return;
             }
@@ -620,13 +776,7 @@ impl SimulationState {
         }
     }
 
-    fn handle_share_energy_action(
-        &mut self,
-        id: u64,
-        x: usize,
-        y: usize,
-        config: &Config,
-    ) {
+    fn handle_share_energy_action(&mut self, id: u64, x: usize, y: usize, config: &Config) {
         let share_amount = config.creature.energy_share_amount;
 
         // Check if giver has enough energy
@@ -642,10 +792,10 @@ impl SimulationState {
 
         // Find adjacent creatures
         let adjacent_positions = [
-            (x, y.wrapping_sub(1)),  // Up
-            (x, y + 1),               // Down
-            (x.wrapping_sub(1), y),   // Left
-            (x + 1, y),               // Right
+            (x, y.wrapping_sub(1)), // Up
+            (x, y + 1),             // Down
+            (x.wrapping_sub(1), y), // Left
+            (x + 1, y),             // Right
         ];
 
         // Find first adjacent creature to share with
@@ -666,14 +816,12 @@ impl SimulationState {
         }
     }
 
-    fn handle_rest_action(
-        &mut self,
-        id: u64,
-        config: &Config,
-    ) {
+    fn handle_rest_action(&mut self, id: u64, config: &Config) {
         // Resting provides boosted healing
-        let boosted_regen = config.combat.health_regen_rate * config.creature.rest_healing_multiplier;
-        let energy_cost = config.combat.health_regen_energy_cost * config.creature.rest_energy_multiplier;
+        let boosted_regen =
+            config.combat.health_regen_rate * config.creature.rest_healing_multiplier;
+        let energy_cost =
+            config.combat.health_regen_energy_cost * config.creature.rest_energy_multiplier;
 
         if let Some(creature) = self.creatures.get_mut(&id) {
             creature.metabolism.passive_heal(boosted_regen, energy_cost);
@@ -708,7 +856,14 @@ impl SimulationState {
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
     }
 
-    fn count_nearby_kin(&self, self_id: u64, x: usize, y: usize, self_generation: u64, radius: usize) -> usize {
+    fn count_nearby_kin(
+        &self,
+        self_id: u64,
+        x: usize,
+        y: usize,
+        self_generation: u64,
+        radius: usize,
+    ) -> usize {
         let x_min = x.saturating_sub(radius);
         let x_max = (x + radius).min(self.world.width() - 1);
         let y_min = y.saturating_sub(radius);
@@ -717,10 +872,12 @@ impl SimulationState {
         self.creatures
             .iter()
             .filter(|(&id, c)| {
-                id != self_id &&
-                c.x >= x_min && c.x <= x_max &&
-                c.y >= y_min && c.y <= y_max &&
-                (c.genome.generation as i64 - self_generation as i64).abs() <= 2
+                id != self_id
+                    && c.x >= x_min
+                    && c.x <= x_max
+                    && c.y >= y_min
+                    && c.y <= y_max
+                    && (c.genome.generation as i64 - self_generation as i64).abs() <= 2
             })
             .count()
     }
@@ -789,7 +946,11 @@ mod tests {
 
         // Kill both creatures by dealing damage
         for creature_id in sim.creatures.keys().copied().collect::<Vec<_>>() {
-            sim.creatures.get_mut(&creature_id).unwrap().metabolism.take_damage(150.0);
+            sim.creatures
+                .get_mut(&creature_id)
+                .unwrap()
+                .metabolism
+                .take_damage(150.0);
         }
 
         // Clear the recently_dead buffer AND tick once to remove dead creatures
@@ -810,7 +971,11 @@ mod tests {
 
         // Kill all creatures by dealing damage
         for creature_id in sim.creatures.keys().copied().collect::<Vec<_>>() {
-            sim.creatures.get_mut(&creature_id).unwrap().metabolism.take_damage(150.0);
+            sim.creatures
+                .get_mut(&creature_id)
+                .unwrap()
+                .metabolism
+                .take_damage(150.0);
         }
 
         // Tick should trigger resurrection

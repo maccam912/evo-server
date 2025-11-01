@@ -283,17 +283,20 @@ function drawFood(ctx, food) {
         // Plant food: green, Meat food: red/brown
         const baseColor = f.is_meat ? [180, 60, 50] : [100, 200, 80]; // RGB
 
-        // Opacity based on amount (0-255 scale)
-        const opacity = Math.min(1.0, f.amount / 100);
+        // Opacity based on amount - ensure minimum visibility
+        const opacity = Math.max(0.4, Math.min(1.0, f.amount / 10));
 
-        // Size based on amount
-        const radius = cellSize * 0.3 * Math.min(1.5, (f.amount / 50));
+        // Size based on amount - ensure minimum size for visibility
+        const minRadius = cellSize * 0.2;
+        const maxRadius = cellSize * 0.45;
+        const radius = Math.max(minRadius, Math.min(maxRadius, cellSize * 0.2 + (f.amount / 10) * 0.05));
 
         ctx.fillStyle = `rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, ${opacity})`;
         ctx.beginPath();
+        // Center the food in the cell by adding 0.5 to coordinates
         ctx.arc(
-            f.x * cellSize,
-            f.y * cellSize,
+            (f.x + 0.5) * cellSize,
+            (f.y + 0.5) * cellSize,
             radius,
             0,
             2 * Math.PI
@@ -307,17 +310,17 @@ function drawCreatures(ctx, creatures) {
     const cellSize = RendererState.cellSize;
 
     creatures.forEach(creature => {
-        // Calculate color based on energy (0-100 range assumed)
+        // Calculate color based on energy (0-200 range from config)
         const energy = creature.energy || 0;
-        const hue = Math.min(120, (energy / 100) * 120); // 0 (red) to 120 (green)
+        const hue = Math.min(120, (energy / 200) * 120); // 0 (red) to 120 (green)
         const color = `hsl(${hue}, 80%, 50%)`;
 
-        // Draw creature as a circle
+        // Draw creature as a circle, centered in cell
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(
-            creature.x * cellSize,
-            creature.y * cellSize,
+            (creature.x + 0.5) * cellSize,
+            (creature.y + 0.5) * cellSize,
             cellSize * 0.6, // Radius
             0,
             2 * Math.PI

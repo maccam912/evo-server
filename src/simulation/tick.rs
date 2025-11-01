@@ -44,15 +44,17 @@ impl SimulationState {
         );
 
         let mut creature_ids: Vec<u64> = self.creatures.keys().copied().collect();
-        let mut rng = rand::thread_rng();
-        creature_ids.shuffle(&mut rng);
+        creature_ids.sort_unstable();
 
         let snapshots = self.build_snapshots(&creature_ids, config);
 
         #[cfg(feature = "rayon")]
         let planning_start = Instant::now();
 
-        let plans = self.evaluate_action_plans(&snapshots, config);
+        let mut plans = self.evaluate_action_plans(&snapshots, config);
+
+        // Ensure deterministic application ordering regardless of planning backend
+        plans.sort_by_key(|plan| plan.creature_id);
 
         #[cfg(feature = "rayon")]
         log::debug!(

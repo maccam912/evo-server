@@ -3,6 +3,7 @@ use crate::config::Config;
 use crate::creature::{neural_net::Action, Creature};
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rayon::prelude::*;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -25,66 +26,77 @@ impl SimulationState {
             config.world.meat_decay_ticks,
         );
 
-        let mut creature_ids: Vec<u64> = self.creatures.keys().copied().collect();
+        // OPTIMIZATION: Pre-allocate with capacity to avoid reallocation
+        let num_creatures = self.creatures.len();
+        let mut creature_ids: Vec<u64> = Vec::with_capacity(num_creatures);
+        creature_ids.extend(self.creatures.keys().copied());
         let mut rng = rand::thread_rng();
         creature_ids.shuffle(&mut rng);
 
-        let mut new_creatures = Vec::new();
-        // Track attacks this tick: victim_id -> attacker_direction
+        // PHASE 1 (Sequential): Pre-process all creatures - aging, energy consumption, healing
+        // This must be sequential to maintain deterministic state updates
+        for &id in &creature_ids {
+            if let Some(creature) = self.creatures.get_mut(&id) {
+                // Increment age each tick
+                creature.age += 1;
+
+                // Decay damage memory (90% decay per tick)
+                creature.decay_damage_memory(0.9);
+
+                // Check for death from old age
+                if creature.age >= config.creature.max_age_ticks {
+                    creature.metabolism.take_damage(creature.metabolism.health());
+                }
+
+                creature.consume_energy(config.creature.energy_cost_per_tick);
+
+                // Check for death from zero energy (starvation)
+                if creature.energy() <= 0.0 {
+                    creature.metabolism.take_damage(creature.metabolism.health());
+                }
+
+                // Passive healing
+                creature.metabolism.passive_heal(
+                    config.combat.health_regen_rate,
+                    config.combat.health_regen_energy_cost,
+                );
+            }
+        }
+
+        // PHASE 2 (Parallel): Compute sensor inputs and decide actions
+        // OPTIMIZATION: This is the main bottleneck - each creature does expensive spatial queries
+        // and neural network forward pass. Since this is read-only, we can parallelize it.
+        // Expected speedup: 4-8× on multi-core CPUs
+        let creature_actions: Vec<(u64, usize, usize, Action)> = creature_ids
+            .par_iter()
+            .filter_map(|&id| {
+                let creature = self.creatures.get(&id)?;
+
+                // Skip dead creatures
+                if !creature.is_alive() {
+                    return None;
+                }
+
+                let x = creature.x;
+                let y = creature.y;
+                let energy = creature.energy();
+
+                // Compute sensor inputs (expensive: multiple spatial queries)
+                let inputs = self.get_sensor_inputs(id, x, y, energy, config);
+
+                // Neural network forward pass (expensive: 336 multiplications + 20 tanh)
+                let action = creature.decide_action(&inputs);
+
+                Some((id, x, y, action))
+            })
+            .collect();
+
+        // PHASE 3 (Sequential): Execute actions in order to handle conflicts deterministically
+        // OPTIMIZATION: Pre-allocate with estimated capacity (assume ~10% reproduction rate)
+        let mut new_creatures = Vec::with_capacity(num_creatures / 10);
         let mut attacks_this_tick: HashMap<u64, Vec<Direction>> = HashMap::new();
 
-        for id in creature_ids {
-            let (x, y, action) = {
-                let (x, y, energy) = {
-                    if let Some(creature) = self.creatures.get_mut(&id) {
-                        // Increment age each tick
-                        creature.age += 1;
-
-                        // Decay damage memory (90% decay per tick)
-                        creature.decay_damage_memory(0.9);
-
-                        // Check for death from old age
-                        if creature.age >= config.creature.max_age_ticks {
-                            creature
-                                .metabolism
-                                .take_damage(creature.metabolism.health());
-                        }
-
-                        creature.consume_energy(config.creature.energy_cost_per_tick);
-
-                        // Check for death from zero energy (starvation)
-                        if creature.energy() <= 0.0 {
-                            creature
-                                .metabolism
-                                .take_damage(creature.metabolism.health());
-                        }
-
-                        // Passive healing
-                        creature.metabolism.passive_heal(
-                            config.combat.health_regen_rate,
-                            config.combat.health_regen_energy_cost,
-                        );
-
-                        if !creature.is_alive() {
-                            continue;
-                        }
-
-                        (creature.x, creature.y, creature.energy())
-                    } else {
-                        continue;
-                    }
-                };
-
-                let inputs = self.get_sensor_inputs(id, x, y, energy, config);
-                let action = if let Some(creature) = self.creatures.get(&id) {
-                    creature.decide_action(&inputs)
-                } else {
-                    continue;
-                };
-
-                (x, y, action)
-            };
-
+        for (id, x, y, action) in creature_actions {
             match action {
                 Action::Stay => {
                     self.try_eat(id, config);
@@ -745,7 +757,7 @@ impl SimulationState {
             return None;
         }
 
-        let mut best: Option<(f64, u64)> = None;
+        let mut best_squared: Option<(f64, u64)> = None;
 
         // Expand radius in steps of 5 to balance early-exit with fewer iterations
         // Sensor normalizes distance to 20 cells, so we cap at 30
@@ -762,25 +774,28 @@ impl SimulationState {
 
                 let dx = (cx as f64 - x as f64).abs();
                 let dy = (cy as f64 - y as f64).abs();
-                let dist = (dx * dx + dy * dy).sqrt();
+                // OPTIMIZATION: Compare squared distances to avoid expensive sqrt() in loop
+                // Only sqrt once at the end when returning
+                let dist_squared = dx * dx + dy * dy;
 
-                match &mut best {
-                    Some((best_dist, best_id)) => {
-                        if dist < *best_dist {
-                            *best_dist = dist;
+                match &mut best_squared {
+                    Some((best_dist_sq, best_id)) => {
+                        if dist_squared < *best_dist_sq {
+                            *best_dist_sq = dist_squared;
                             *best_id = id;
                         }
                     }
-                    None => best = Some((dist, id)),
+                    None => best_squared = Some((dist_squared, id)),
                 }
             }
 
-            if best.is_some() {
+            if best_squared.is_some() {
                 break;
             }
         }
 
-        best
+        // Take sqrt only once at the end
+        best_squared.map(|(dist_sq, id)| (dist_sq.sqrt(), id))
     }
 
     fn count_nearby_kin(

@@ -23,6 +23,11 @@ hyper = "1.0"
 [dev-dependencies]
 criterion = "0.5"
 
+[profile.release]
+lto = "fat"              # Link-time optimization for better inlining
+codegen-units = 1        # Better optimization at cost of slower compile
+opt-level = 3            # Maximum optimization level
+
 [[bench]]
 name = "spatial_index"
 harness = false

@@ -8,7 +8,12 @@ function updateStatistics(metrics) {
     // Population and generation
     setStatValue('stat-population', metrics.population || 0);
     setStatValue('stat-generation', metrics.generation || 0);
-    setStatValue('stat-tick', metrics.tick || 0);
+
+    // Show paused indicator if in paused mode
+    const tickValue = metrics.tick || 0;
+    const isPaused = window.AppState && window.AppState.playbackMode === 'paused';
+    const tickDisplay = isPaused ? `${tickValue} [PAUSED]` : tickValue;
+    setStatValue('stat-tick', tickDisplay);
 
     // Energy
     setStatValue('stat-avg-energy', formatNumber(metrics.avg_energy || 0, 2));

@@ -140,6 +140,53 @@ main {
     background-color: #4a4a4a;
 }
 
+.playback-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #3a3a3a;
+}
+
+.playback-btn {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    color: #e0e0e0;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+}
+
+.playback-btn:hover:not(:disabled) {
+    background-color: #3a3a3a;
+}
+
+.playback-btn:active:not(:disabled) {
+    background-color: #4a4a4a;
+}
+
+.playback-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#go-live-btn {
+    background-color: #4CAF50;
+    border-color: #45a049;
+    font-weight: bold;
+}
+
+#go-live-btn:hover {
+    background-color: #45a049;
+}
+
+#go-live-btn:active {
+    background-color: #3d8b40;
+}
+
 .stats-panel {
     width: 280px;
     background-color: #2a2a2a;

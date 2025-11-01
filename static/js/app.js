@@ -16,6 +16,11 @@ const AppState = {
     // UI state
     selectedCreature: null,
     subscribedCreatureId: null,
+
+    // Playback state
+    playbackMode: 'live', // 'live' or 'paused'
+    stateBuffer: [],
+    currentBufferIndex: -1,
 };
 
 // WebSocket connection
@@ -116,26 +121,40 @@ function handleCreatureUpdate(message) {
 
 // Handle update message
 function handleUpdate(message) {
-    AppState.metrics = message.metrics || {};
-    AppState.creatures = message.creatures || [];
-    AppState.food = message.food || [];
+    const stateSnapshot = {
+        metrics: message.metrics || {},
+        creatures: message.creatures || [],
+        food: message.food || [],
+    };
 
-    // Update UI
-    if (window.updateUI) {
-        window.updateUI(AppState);
-    }
+    if (AppState.playbackMode === 'paused') {
+        // Add to buffer when paused
+        AppState.stateBuffer.push(stateSnapshot);
+    } else {
+        // Live mode: update immediately
+        AppState.metrics = stateSnapshot.metrics;
+        AppState.creatures = stateSnapshot.creatures;
+        AppState.food = stateSnapshot.food;
 
-    // Render the world
-    if (window.renderWorld) {
-        window.renderWorld(AppState);
+        // Update UI
+        if (window.updateUI) {
+            window.updateUI(AppState);
+        }
+
+        // Render the world
+        if (window.renderWorld) {
+            window.renderWorld(AppState);
+        }
     }
 }
 
 // Handle full state message
 function handleFullState(message) {
-    AppState.metrics = message.metrics || {};
-    AppState.creatures = message.creatures || [];
-    AppState.food = message.food || [];
+    const stateSnapshot = {
+        metrics: message.metrics || {},
+        creatures: message.creatures || [],
+        food: message.food || [],
+    };
 
     // Extract world dimensions (sent directly in message, not nested in world object)
     AppState.worldWidth = message.world_width || 0;
@@ -149,14 +168,24 @@ function handleFullState(message) {
         window.initializeRenderer(AppState.worldWidth, AppState.worldHeight);
     }
 
-    // Update UI
-    if (window.updateUI) {
-        window.updateUI(AppState);
-    }
+    if (AppState.playbackMode === 'paused') {
+        // Add to buffer when paused
+        AppState.stateBuffer.push(stateSnapshot);
+    } else {
+        // Live mode: update immediately
+        AppState.metrics = stateSnapshot.metrics;
+        AppState.creatures = stateSnapshot.creatures;
+        AppState.food = stateSnapshot.food;
 
-    // Render the world
-    if (window.renderWorld) {
-        window.renderWorld(AppState);
+        // Update UI
+        if (window.updateUI) {
+            window.updateUI(AppState);
+        }
+
+        // Render the world
+        if (window.renderWorld) {
+            window.renderWorld(AppState);
+        }
     }
 }
 
@@ -177,6 +206,97 @@ function updateConnectionStatus(status) {
         case 'disconnected':
             text.textContent = 'Disconnected';
             break;
+    }
+}
+
+// Playback controls
+function pausePlayback() {
+    if (AppState.playbackMode === 'paused') return;
+
+    AppState.playbackMode = 'paused';
+    // Initialize buffer with current state
+    AppState.stateBuffer = [{
+        metrics: AppState.metrics,
+        creatures: AppState.creatures,
+        food: AppState.food,
+    }];
+    AppState.currentBufferIndex = 0;
+
+    console.log('Playback paused');
+    updatePlaybackControls();
+}
+
+function stepBackward() {
+    if (AppState.playbackMode !== 'paused' || AppState.currentBufferIndex <= 0) return;
+
+    AppState.currentBufferIndex--;
+    renderBufferedState(AppState.currentBufferIndex);
+    updatePlaybackControls();
+}
+
+function stepForward() {
+    if (AppState.playbackMode !== 'paused') return;
+    if (AppState.currentBufferIndex >= AppState.stateBuffer.length - 1) return;
+
+    AppState.currentBufferIndex++;
+    renderBufferedState(AppState.currentBufferIndex);
+    updatePlaybackControls();
+}
+
+function goLive() {
+    if (AppState.playbackMode === 'live') return;
+
+    AppState.playbackMode = 'live';
+    AppState.stateBuffer = [];
+    AppState.currentBufferIndex = -1;
+
+    console.log('Resumed live playback');
+    updatePlaybackControls();
+}
+
+function renderBufferedState(index) {
+    if (index < 0 || index >= AppState.stateBuffer.length) return;
+
+    const state = AppState.stateBuffer[index];
+    AppState.metrics = state.metrics;
+    AppState.creatures = state.creatures;
+    AppState.food = state.food;
+
+    // Update UI
+    if (window.updateUI) {
+        window.updateUI(AppState);
+    }
+
+    // Render the world
+    if (window.renderWorld) {
+        window.renderWorld(AppState);
+    }
+}
+
+function updatePlaybackControls() {
+    const pauseBtn = document.getElementById('pause-btn');
+    const stepBackBtn = document.getElementById('step-back-btn');
+    const stepForwardBtn = document.getElementById('step-forward-btn');
+    const goLiveBtn = document.getElementById('go-live-btn');
+
+    if (AppState.playbackMode === 'paused') {
+        // Show/hide appropriate buttons
+        if (pauseBtn) pauseBtn.style.display = 'none';
+        if (goLiveBtn) goLiveBtn.style.display = 'block';
+
+        // Enable/disable step buttons based on position
+        if (stepBackBtn) {
+            stepBackBtn.disabled = AppState.currentBufferIndex <= 0;
+        }
+        if (stepForwardBtn) {
+            stepForwardBtn.disabled = AppState.currentBufferIndex >= AppState.stateBuffer.length - 1;
+        }
+    } else {
+        // Live mode
+        if (pauseBtn) pauseBtn.style.display = 'block';
+        if (goLiveBtn) goLiveBtn.style.display = 'none';
+        if (stepBackBtn) stepBackBtn.disabled = true;
+        if (stepForwardBtn) stepForwardBtn.disabled = true;
     }
 }
 
@@ -229,6 +349,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (closeButton) {
         closeButton.addEventListener('click', deselectCreature);
     }
+
+    // Set up playback control buttons
+    const pauseBtn = document.getElementById('pause-btn');
+    const stepBackBtn = document.getElementById('step-back-btn');
+    const stepForwardBtn = document.getElementById('step-forward-btn');
+    const goLiveBtn = document.getElementById('go-live-btn');
+
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', pausePlayback);
+    }
+    if (stepBackBtn) {
+        stepBackBtn.addEventListener('click', stepBackward);
+    }
+    if (stepForwardBtn) {
+        stepForwardBtn.addEventListener('click', stepForward);
+    }
+    if (goLiveBtn) {
+        goLiveBtn.addEventListener('click', goLive);
+    }
 });
 
 // Export functions for use in other modules
@@ -236,3 +375,8 @@ window.AppState = AppState;
 window.selectCreature = selectCreature;
 window.deselectCreature = deselectCreature;
 window.sendMessage = sendMessage;
+window.pausePlayback = pausePlayback;
+window.stepBackward = stepBackward;
+window.stepForward = stepForward;
+window.goLive = goLive;
+window.updatePlaybackControls = updatePlaybackControls;

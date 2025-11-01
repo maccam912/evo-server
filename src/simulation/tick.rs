@@ -36,6 +36,9 @@ impl SimulationState {
                         // Increment age each tick
                         creature.age += 1;
 
+                        // Decay damage memory (90% decay per tick)
+                        creature.decay_damage_memory(0.9);
+
                         // Check for death from old age
                         if creature.age >= config.creature.max_age_ticks {
                             creature.metabolism.take_damage(creature.metabolism.health());
@@ -79,56 +82,22 @@ impl SimulationState {
                     self.try_eat(id, config);
                 }
                 Action::MoveUp | Action::MoveDown | Action::MoveLeft | Action::MoveRight => {
-                    // Calculate target position
-                    let (dx, dy) = action.to_delta();
-                    let new_x = (x as i32 + dx).max(0).min(self.world.width() as i32 - 1) as usize;
-                    let new_y = (y as i32 + dy).max(0).min(self.world.height() as i32 - 1) as usize;
-
-                    // Check if there's a creature at the target position (before borrowing)
-                    let target_creature_id = self.creature_at(new_x, new_y);
-
-                    // Try to consume energy for the move
-                    let has_energy = if let Some(creature) = self.creatures.get_mut(&id) {
-                        creature.consume_energy(config.creature.energy_cost_move)
-                    } else {
-                        false
-                    };
-
-                    if has_energy {
-                        if let Some(target_id) = target_creature_id {
-                            // Attack the creature instead of moving
-                            if let Some(target) = self.creatures.get_mut(&target_id) {
-                                target.metabolism.take_damage(config.combat.damage_per_attack);
-
-                                // Record attack direction for sensors
-                                let attack_dir = match action {
-                                    Action::MoveUp => Direction::Down,    // Attacked from below
-                                    Action::MoveDown => Direction::Up,    // Attacked from above
-                                    Action::MoveLeft => Direction::Right, // Attacked from right
-                                    Action::MoveRight => Direction::Left, // Attacked from left
-                                    _ => unreachable!(),
-                                };
-                                attacks_this_tick.entry(target_id).or_insert_with(Vec::new).push(attack_dir);
-                            }
-                        } else {
-                            // No creature, check if we can move there
-                            if let Some(cell) = self.world.get(new_x, new_y) {
-                                if cell.is_empty() || cell.is_food() {
-                                    // Update spatial index
-                                    self.update_creature_position(id, x, y, new_x, new_y);
-
-                                    // Move the creature
-                                    if let Some(creature) = self.creatures.get_mut(&id) {
-                                        creature.x = new_x;
-                                        creature.y = new_y;
-                                    }
-
-                                    // Try to eat at new position
-                                    self.try_eat(id, config);
-                                }
-                            }
-                        }
-                    }
+                    self.handle_move_action(id, x, y, action, config.creature.energy_cost_move, config, &mut attacks_this_tick);
+                }
+                Action::SprintUp | Action::SprintDown | Action::SprintLeft | Action::SprintRight => {
+                    self.handle_move_action(id, x, y, action, config.creature.energy_cost_sprint, config, &mut attacks_this_tick);
+                }
+                Action::Attack => {
+                    self.handle_attack_action(id, x, y, config, &mut attacks_this_tick);
+                }
+                Action::Reproduce => {
+                    self.handle_reproduce_action(id, &mut new_creatures, config);
+                }
+                Action::ShareEnergy => {
+                    self.handle_share_energy_action(id, x, y, config);
+                }
+                Action::Rest => {
+                    self.handle_rest_action(id, config);
                 }
             }
 
@@ -380,6 +349,105 @@ impl SimulationState {
             };
         }
 
+        // Input 16: Age ratio (age / max_age)
+        if config.evolution.neural_net_inputs > 16 {
+            if let Some(creature) = self.creatures.get(&creature_id) {
+                inputs[16] = (creature.age as f64 / config.creature.max_age_ticks as f64).min(1.0);
+            }
+        }
+
+        // Input 17: Can reproduce (boolean)
+        if config.evolution.neural_net_inputs > 17 {
+            if let Some(creature) = self.creatures.get(&creature_id) {
+                inputs[17] = if creature.can_reproduce(
+                    config.creature.min_reproduce_energy,
+                    self.tick,
+                    config.creature.reproduce_cooldown_ticks
+                ) {
+                    1.0
+                } else {
+                    0.0
+                };
+            }
+        }
+
+        // Input 18: Offspring count (normalized to 0-1, capped at 10)
+        if config.evolution.neural_net_inputs > 18 {
+            if let Some(creature) = self.creatures.get(&creature_id) {
+                inputs[18] = (creature.offspring_count as f64 / 10.0).min(1.0);
+            }
+        }
+
+        // Input 19: Recent damage taken (normalized)
+        if config.evolution.neural_net_inputs > 19 {
+            if let Some(creature) = self.creatures.get(&creature_id) {
+                inputs[19] = (creature.last_damage_taken / 50.0).min(1.0);
+            }
+        }
+
+        // Input 20: Distance to top boundary (normalized)
+        if config.evolution.neural_net_inputs > 20 {
+            inputs[20] = (y as f64 / config.world.height as f64).min(1.0);
+        }
+
+        // Input 21: Distance to bottom boundary (normalized)
+        if config.evolution.neural_net_inputs > 21 {
+            inputs[21] = ((config.world.height - y) as f64 / config.world.height as f64).min(1.0);
+        }
+
+        // Input 22: Distance to left boundary (normalized)
+        if config.evolution.neural_net_inputs > 22 {
+            inputs[22] = (x as f64 / config.world.width as f64).min(1.0);
+        }
+
+        // Input 23: Distance to right boundary (normalized)
+        if config.evolution.neural_net_inputs > 23 {
+            inputs[23] = ((config.world.width - x) as f64 / config.world.width as f64).min(1.0);
+        }
+
+        // Inputs 24-26: Nearest creature distance, energy, and health
+        if config.evolution.neural_net_inputs > 24 {
+            let nearest = self.find_nearest_creature(creature_id, x, y);
+            if let Some((dist, nearest_id)) = nearest {
+                // Input 24: Distance to nearest creature (normalized to max 20 cells)
+                inputs[24] = (dist / 20.0).min(1.0);
+
+                // Input 25: Nearest creature energy ratio
+                if config.evolution.neural_net_inputs > 25 {
+                    if let Some(nearest_creature) = self.creatures.get(&nearest_id) {
+                        inputs[25] = nearest_creature.metabolism.energy_ratio();
+                    }
+                }
+
+                // Input 26: Nearest creature health ratio
+                if config.evolution.neural_net_inputs > 26 {
+                    if let Some(nearest_creature) = self.creatures.get(&nearest_id) {
+                        inputs[26] = nearest_creature.metabolism.health_ratio();
+                    }
+                }
+            }
+        }
+
+        // Input 27: Nearby kin density (creatures with similar generation)
+        if config.evolution.neural_net_inputs > 27 {
+            if let Some(creature) = self.creatures.get(&creature_id) {
+                let kin_count = self.count_nearby_kin(creature_id, x, y, creature.genome.generation, 5);
+                inputs[27] = (kin_count as f64 / 25.0).min(1.0);
+            }
+        }
+
+        // Input 28: Food density in 5×5 area
+        if config.evolution.neural_net_inputs > 28 {
+            let food_density = self.count_food_in_area(x, y, 2);
+            inputs[28] = (food_density as f64 / 25.0).min(1.0);
+        }
+
+        // Input 29: Creature density in 3×3 area
+        if config.evolution.neural_net_inputs > 29 {
+            let local_creatures = self.count_nearby_creatures(x, y, 1);
+            inputs[29] = (local_creatures as f64 / 9.0).min(1.0);
+        }
+
         inputs
     }
 
@@ -412,6 +480,209 @@ impl SimulationState {
         empty.choose(&mut rng).copied()
     }
 
+    fn handle_move_action(
+        &mut self,
+        id: u64,
+        x: usize,
+        y: usize,
+        action: Action,
+        energy_cost: f64,
+        config: &Config,
+        attacks_this_tick: &mut HashMap<u64, Vec<Direction>>,
+    ) {
+        // Calculate target position
+        let (dx, dy) = action.to_delta();
+        let new_x = (x as i32 + dx).max(0).min(self.world.width() as i32 - 1) as usize;
+        let new_y = (y as i32 + dy).max(0).min(self.world.height() as i32 - 1) as usize;
+
+        // Check if there's a creature at the target position (before borrowing)
+        let target_creature_id = self.creature_at(new_x, new_y);
+
+        // Try to consume energy for the move
+        let has_energy = if let Some(creature) = self.creatures.get_mut(&id) {
+            creature.consume_energy(energy_cost)
+        } else {
+            false
+        };
+
+        if has_energy {
+            if let Some(target_id) = target_creature_id {
+                // Attack the creature instead of moving
+                if let Some(target) = self.creatures.get_mut(&target_id) {
+                    let damage = config.combat.damage_per_attack;
+                    target.metabolism.take_damage(damage);
+                    target.record_damage(damage);
+
+                    // Record attack direction for sensors
+                    let attack_dir = match action {
+                        Action::MoveUp | Action::SprintUp => Direction::Down,
+                        Action::MoveDown | Action::SprintDown => Direction::Up,
+                        Action::MoveLeft | Action::SprintLeft => Direction::Right,
+                        Action::MoveRight | Action::SprintRight => Direction::Left,
+                        _ => unreachable!(),
+                    };
+                    attacks_this_tick.entry(target_id).or_insert_with(Vec::new).push(attack_dir);
+                }
+            } else {
+                // No creature, check if we can move there
+                if let Some(cell) = self.world.get(new_x, new_y) {
+                    if cell.is_empty() || cell.is_food() {
+                        // Update spatial index
+                        self.update_creature_position(id, x, y, new_x, new_y);
+
+                        // Move the creature
+                        if let Some(creature) = self.creatures.get_mut(&id) {
+                            creature.x = new_x;
+                            creature.y = new_y;
+                        }
+
+                        // Try to eat at new position
+                        self.try_eat(id, config);
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_attack_action(
+        &mut self,
+        _id: u64,
+        x: usize,
+        y: usize,
+        config: &Config,
+        attacks_this_tick: &mut HashMap<u64, Vec<Direction>>,
+    ) {
+        // Find adjacent creatures and attack them
+        let adjacent = [
+            (x, y.wrapping_sub(1), Direction::Down),  // Up
+            (x, y + 1, Direction::Up),                 // Down
+            (x.wrapping_sub(1), y, Direction::Right),  // Left
+            (x + 1, y, Direction::Left),               // Right
+        ];
+
+        for (nx, ny, dir) in adjacent {
+            if let Some(target_id) = self.creature_at(nx, ny) {
+                if let Some(target) = self.creatures.get_mut(&target_id) {
+                    let damage = config.combat.damage_per_strong_attack;
+                    target.metabolism.take_damage(damage);
+                    target.record_damage(damage);
+                    attacks_this_tick.entry(target_id).or_insert_with(Vec::new).push(dir);
+                }
+            }
+        }
+    }
+
+    fn handle_reproduce_action(
+        &mut self,
+        id: u64,
+        new_creatures: &mut Vec<Creature>,
+        config: &Config,
+    ) {
+        if let Some(creature) = self.creatures.get(&id) {
+            if !creature.is_alive() ||
+               !creature.can_reproduce(
+                   config.creature.min_reproduce_energy,
+                   self.tick,
+                   config.creature.reproduce_cooldown_ticks,
+               ) ||
+               !self.can_spawn_new_creature(config.creature.max_population)
+            {
+                return;
+            }
+
+            let creature_x = creature.x;
+            let creature_y = creature.y;
+
+            if let Some(target_pos) = self.find_empty_neighbor(creature_x, creature_y) {
+                if let Some(parent) = self.creatures.get_mut(&id) {
+                    if let Some(offspring) = parent.reproduce(
+                        self.next_creature_id,
+                        target_pos.0,
+                        target_pos.1,
+                        config.evolution.mutation_rate,
+                        config.creature.energy_cost_reproduce,
+                        config.creature.initial_energy,
+                        config.creature.max_energy,
+                        (
+                            config.evolution.neural_net_inputs,
+                            config.evolution.neural_net_hidden,
+                            config.evolution.neural_net_outputs,
+                        ),
+                        self.tick,
+                    ) {
+                        parent.increment_offspring();
+                        new_creatures.push(offspring);
+                        self.next_creature_id += 1;
+                        self.total_births += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_share_energy_action(
+        &mut self,
+        id: u64,
+        x: usize,
+        y: usize,
+        config: &Config,
+    ) {
+        let share_amount = config.creature.energy_share_amount;
+
+        // Check if giver has enough energy
+        let can_share = if let Some(giver) = self.creatures.get(&id) {
+            giver.energy() >= share_amount
+        } else {
+            false
+        };
+
+        if !can_share {
+            return;
+        }
+
+        // Find adjacent creatures
+        let adjacent_positions = [
+            (x, y.wrapping_sub(1)),  // Up
+            (x, y + 1),               // Down
+            (x.wrapping_sub(1), y),   // Left
+            (x + 1, y),               // Right
+        ];
+
+        // Find first adjacent creature to share with
+        for (nx, ny) in adjacent_positions {
+            if let Some(receiver_id) = self.creature_at(nx, ny) {
+                if receiver_id != id {
+                    // Transfer energy
+                    if let Some(giver) = self.creatures.get_mut(&id) {
+                        if giver.consume_energy(share_amount) {
+                            if let Some(receiver) = self.creatures.get_mut(&receiver_id) {
+                                receiver.gain_energy(share_amount);
+                            }
+                        }
+                    }
+                    break; // Only share with one creature
+                }
+            }
+        }
+    }
+
+    fn handle_rest_action(
+        &mut self,
+        id: u64,
+        config: &Config,
+    ) {
+        // Resting provides boosted healing
+        let boosted_regen = config.combat.health_regen_rate * config.creature.rest_healing_multiplier;
+        let energy_cost = config.combat.health_regen_energy_cost * config.creature.rest_energy_multiplier;
+
+        if let Some(creature) = self.creatures.get_mut(&id) {
+            creature.metabolism.passive_heal(boosted_regen, energy_cost);
+        }
+
+        // Try to eat at current position
+        self.try_eat(id, config);
+    }
+
     fn count_nearby_creatures(&self, x: usize, y: usize, radius: usize) -> usize {
         let x_min = x.saturating_sub(radius);
         let x_max = (x + radius).min(self.world.width() - 1);
@@ -422,6 +693,55 @@ impl SimulationState {
             .values()
             .filter(|c| c.x >= x_min && c.x <= x_max && c.y >= y_min && c.y <= y_max)
             .count()
+    }
+
+    fn find_nearest_creature(&self, self_id: u64, x: usize, y: usize) -> Option<(f64, u64)> {
+        self.creatures
+            .iter()
+            .filter(|(&id, _)| id != self_id)
+            .map(|(&id, c)| {
+                let dx = (c.x as f64 - x as f64).abs();
+                let dy = (c.y as f64 - y as f64).abs();
+                let dist = (dx * dx + dy * dy).sqrt();
+                (dist, id)
+            })
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+    }
+
+    fn count_nearby_kin(&self, self_id: u64, x: usize, y: usize, self_generation: u64, radius: usize) -> usize {
+        let x_min = x.saturating_sub(radius);
+        let x_max = (x + radius).min(self.world.width() - 1);
+        let y_min = y.saturating_sub(radius);
+        let y_max = (y + radius).min(self.world.height() - 1);
+
+        self.creatures
+            .iter()
+            .filter(|(&id, c)| {
+                id != self_id &&
+                c.x >= x_min && c.x <= x_max &&
+                c.y >= y_min && c.y <= y_max &&
+                (c.genome.generation as i64 - self_generation as i64).abs() <= 2
+            })
+            .count()
+    }
+
+    fn count_food_in_area(&self, x: usize, y: usize, radius: usize) -> usize {
+        let x_min = x.saturating_sub(radius);
+        let x_max = (x + radius).min(self.world.width() - 1);
+        let y_min = y.saturating_sub(radius);
+        let y_max = (y + radius).min(self.world.height() - 1);
+
+        let mut count = 0;
+        for cy in y_min..=y_max {
+            for cx in x_min..=x_max {
+                if let Some(cell) = self.world.get(cx, cy) {
+                    if cell.is_food() {
+                        count += 1;
+                    }
+                }
+            }
+        }
+        count
     }
 }
 

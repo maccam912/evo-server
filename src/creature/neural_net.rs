@@ -94,6 +94,14 @@ impl NeuralNetwork {
                     1 => Action::MoveDown,
                     2 => Action::MoveLeft,
                     3 => Action::MoveRight,
+                    4 => Action::Attack,
+                    5 => Action::Reproduce,
+                    6 => Action::ShareEnergy,
+                    7 => Action::SprintUp,
+                    8 => Action::SprintDown,
+                    9 => Action::SprintLeft,
+                    10 => Action::SprintRight,
+                    11 => Action::Rest,
                     _ => Action::Stay,
                 };
             }
@@ -124,6 +132,14 @@ pub enum Action {
     MoveDown,
     MoveLeft,
     MoveRight,
+    Attack,
+    Reproduce,
+    ShareEnergy,
+    SprintUp,
+    SprintDown,
+    SprintLeft,
+    SprintRight,
+    Rest,
 }
 
 impl Action {
@@ -134,7 +150,28 @@ impl Action {
             Action::MoveDown => (0, 1),
             Action::MoveLeft => (-1, 0),
             Action::MoveRight => (1, 0),
+            Action::SprintUp => (0, -1),
+            Action::SprintDown => (0, 1),
+            Action::SprintLeft => (-1, 0),
+            Action::SprintRight => (1, 0),
+            Action::Attack => (0, 0),
+            Action::Reproduce => (0, 0),
+            Action::ShareEnergy => (0, 0),
+            Action::Rest => (0, 0),
         }
+    }
+
+    pub fn is_movement(&self) -> bool {
+        matches!(self,
+            Action::MoveUp | Action::MoveDown | Action::MoveLeft | Action::MoveRight |
+            Action::SprintUp | Action::SprintDown | Action::SprintLeft | Action::SprintRight
+        )
+    }
+
+    pub fn is_sprint(&self) -> bool {
+        matches!(self,
+            Action::SprintUp | Action::SprintDown | Action::SprintLeft | Action::SprintRight
+        )
     }
 }
 
@@ -169,14 +206,17 @@ mod tests {
     #[test]
     fn test_decide_action() {
         let genome = Genome::random(100);
-        let nn = NeuralNetwork::from_genome(&genome, 8, 6, 4);
+        let nn = NeuralNetwork::from_genome(&genome, 8, 6, 12);
 
         let inputs = vec![0.5, 0.3, 0.1, 0.9, 0.2, 0.7, 0.4, 0.6];
         let action = nn.decide_action(&inputs);
 
         assert!(matches!(
             action,
-            Action::MoveUp | Action::MoveDown | Action::MoveLeft | Action::MoveRight | Action::Stay
+            Action::MoveUp | Action::MoveDown | Action::MoveLeft | Action::MoveRight |
+            Action::Attack | Action::Reproduce | Action::ShareEnergy |
+            Action::SprintUp | Action::SprintDown | Action::SprintLeft | Action::SprintRight |
+            Action::Rest | Action::Stay
         ));
     }
 

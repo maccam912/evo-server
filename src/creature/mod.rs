@@ -18,6 +18,8 @@ pub struct Creature {
     pub metabolism: Metabolism,
     pub last_reproduce_tick: u64,
     pub age: u64,
+    pub offspring_count: u32,
+    pub last_damage_taken: f64,
 }
 
 impl Creature {
@@ -42,6 +44,8 @@ impl Creature {
             metabolism,
             last_reproduce_tick: 0,
             age: 0,
+            offspring_count: 0,
+            last_damage_taken: 0.0,
         }
     }
 
@@ -68,6 +72,18 @@ impl Creature {
     pub fn can_reproduce(&self, min_energy: f64, current_tick: u64, cooldown: u64) -> bool {
         self.metabolism.can_afford(min_energy) &&
         (current_tick - self.last_reproduce_tick) >= cooldown
+    }
+
+    pub fn record_damage(&mut self, damage: f64) {
+        self.last_damage_taken = damage;
+    }
+
+    pub fn decay_damage_memory(&mut self, decay_rate: f64) {
+        self.last_damage_taken *= decay_rate;
+    }
+
+    pub fn increment_offspring(&mut self) {
+        self.offspring_count += 1;
     }
 }
 

@@ -35,6 +35,10 @@ pub struct CreatureConfig {
     pub min_reproduce_energy: f64,
     pub reproduce_cooldown_ticks: u64,
     pub max_age_ticks: u64,
+    pub energy_cost_sprint: f64,
+    pub energy_share_amount: f64,
+    pub rest_energy_multiplier: f64,
+    pub rest_healing_multiplier: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +53,7 @@ pub struct EvolutionConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CombatConfig {
     pub damage_per_attack: f64,
+    pub damage_per_strong_attack: f64,
     pub health_regen_rate: f64,
     pub health_regen_energy_cost: f64,
 }
@@ -99,16 +104,21 @@ impl Default for Config {
                 min_reproduce_energy: 100.0,
                 reproduce_cooldown_ticks: 100,
                 max_age_ticks: 10000,  // ~5.5 minutes at 30 TPS
+                energy_cost_sprint: 2.0,     // 2x normal movement cost
+                energy_share_amount: 20.0,   // Amount shared per action
+                rest_energy_multiplier: 0.5, // Reduced energy consumption when resting
+                rest_healing_multiplier: 2.0, // Boosted healing when resting
             },
             evolution: EvolutionConfig {
                 mutation_rate: 0.01,
-                genome_size: 150,  // Increased for more weights
-                neural_net_inputs: 16,  // Expanded for combat sensors
-                neural_net_hidden: 6,
-                neural_net_outputs: 4,
+                genome_size: 400,  // Expanded for ambitious sensor/action set
+                neural_net_inputs: 30,  // 16 original + 14 new sensors
+                neural_net_hidden: 8,   // Increased for more complexity
+                neural_net_outputs: 12, // 4 moves + 8 new actions
             },
             combat: CombatConfig {
                 damage_per_attack: 20.0,
+                damage_per_strong_attack: 40.0,  // 2x normal attack damage
                 health_regen_rate: 2.0,
                 health_regen_energy_cost: 2.0,
             },

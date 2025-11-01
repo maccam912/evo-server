@@ -746,9 +746,10 @@ impl SimulationState {
         }
 
         let mut best: Option<(f64, u64)> = None;
-        let max_radius = self.world.width().max(self.world.height());
 
-        for radius in 0..=max_radius {
+        // Expand radius in steps of 5 to balance early-exit with fewer iterations
+        // Sensor normalizes distance to 20 cells, so we cap at 30
+        for radius in (0..=30).step_by(5) {
             let x_min = x.saturating_sub(radius);
             let x_max = x.saturating_add(radius).min(self.world.width() - 1);
             let y_min = y.saturating_sub(radius);

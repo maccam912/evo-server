@@ -89,8 +89,8 @@ impl Default for Config {
                 initial_food_density: 0.3,
                 food_regen_rate: 0.001,
                 max_food_per_cell: 10,
-                plant_decay_ticks: 600,   // ~20 seconds at 30 TPS
-                meat_decay_ticks: 300,    // ~10 seconds at 30 TPS (faster decay)
+                plant_decay_ticks: 600, // ~20 seconds at 30 TPS
+                meat_decay_ticks: 300,  // ~10 seconds at 30 TPS (faster decay)
             },
             creature: CreatureConfig {
                 initial_population: 100,
@@ -103,22 +103,22 @@ impl Default for Config {
                 energy_cost_reproduce: 50.0,
                 min_reproduce_energy: 100.0,
                 reproduce_cooldown_ticks: 100,
-                max_age_ticks: 10000,  // ~5.5 minutes at 30 TPS
-                energy_cost_sprint: 2.0,     // 2x normal movement cost
-                energy_share_amount: 20.0,   // Amount shared per action
-                rest_energy_multiplier: 0.5, // Reduced energy consumption when resting
+                max_age_ticks: 10000,         // ~5.5 minutes at 30 TPS
+                energy_cost_sprint: 2.0,      // 2x normal movement cost
+                energy_share_amount: 20.0,    // Amount shared per action
+                rest_energy_multiplier: 0.5,  // Reduced energy consumption when resting
                 rest_healing_multiplier: 2.0, // Boosted healing when resting
             },
             evolution: EvolutionConfig {
                 mutation_rate: 0.01,
-                genome_size: 400,  // Expanded for ambitious sensor/action set
+                genome_size: 400,       // Expanded for ambitious sensor/action set
                 neural_net_inputs: 30,  // 16 original + 14 new sensors
                 neural_net_hidden: 8,   // Increased for more complexity
                 neural_net_outputs: 12, // 4 moves + 8 new actions
             },
             combat: CombatConfig {
                 damage_per_attack: 20.0,
-                damage_per_strong_attack: 40.0,  // 2x normal attack damage
+                damage_per_strong_attack: 40.0, // 2x normal attack damage
                 health_regen_rate: 2.0,
                 health_regen_energy_cost: 2.0,
             },
@@ -150,7 +150,10 @@ impl Config {
                     Ok(config) => Ok(config),
                     Err(e) => {
                         // Deserialization error - backup the old file and create new default
-                        log::error!("Failed to parse config file: {}. Creating backup and using defaults.", e);
+                        log::error!(
+                            "Failed to parse config file: {}. Creating backup and using defaults.",
+                            e
+                        );
 
                         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
                         let backup_path = format!("{}.backup.{}", path, timestamp);
@@ -172,7 +175,7 @@ impl Config {
                     }
                 }
             }
-            Err(e) => Err(Box::new(e))
+            Err(e) => Err(Box::new(e)),
         }
     }
 
@@ -190,8 +193,8 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.world.width, 100);
-        assert_eq!(config.world.height, 100);
+        assert_eq!(config.world.width, 300);
+        assert_eq!(config.world.height, 300);
         assert!(config.checkpoint.enabled);
     }
 

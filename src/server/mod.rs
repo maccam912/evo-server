@@ -175,7 +175,8 @@ fn get_creature_details(
         config,
     );
 
-    let (network_outputs, network_probabilities) = creature.brain.get_outputs_and_probabilities(&sensor_inputs);
+    let (network_outputs, network_probabilities) =
+        creature.brain.get_outputs_and_probabilities(&sensor_inputs);
 
     Some(protocol::CreatureDetails {
         id: creature_id,

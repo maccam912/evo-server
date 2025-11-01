@@ -206,38 +206,41 @@ pub struct Creature {
 **Network structure**:
 ```rust
 pub struct NeuralNetwork {
-    input_hidden_weights: Vec<Vec<f32>>,  // [8][6]
-    hidden_output_weights: Vec<Vec<f32>>, // [6][4]
+    input_size: usize,
+    hidden_size: usize,
+    output_size: usize,
+    // Row-major buffers sized hidden_size * input_size and output_size * hidden_size
+    weights_ih: Vec<f64>,
+    weights_ho: Vec<f64>,
+    hidden: Vec<f64>,
+    output: Vec<f64>,
 }
 ```
 
 **Forward pass**:
 ```rust
-pub fn decide(&self, inputs: [f32; 8]) -> usize {
+pub fn forward(&mut self, inputs: &[f64]) -> &[f64] {
     // Hidden layer
-    let mut hidden = vec![0.0; 6];
-    for h in 0..6 {
-        for i in 0..8 {
-            hidden[h] += inputs[i] * self.input_hidden_weights[i][h];
+    for h in 0..self.hidden_size {
+        let mut sum = 0.0;
+        let row = h * self.input_size;
+        for i in 0..self.input_size {
+            sum += self.weights_ih[row + i] * inputs[i];
         }
-        hidden[h] = hidden[h].tanh();
+        self.hidden[h] = sum.tanh();
     }
 
     // Output layer
-    let mut outputs = vec![0.0; 4];
-    for o in 0..4 {
-        for h in 0..6 {
-            outputs[o] += hidden[h] * self.hidden_output_weights[h][o];
+    for o in 0..self.output_size {
+        let mut sum = 0.0;
+        let row = o * self.hidden_size;
+        for h in 0..self.hidden_size {
+            sum += self.weights_ho[row + h] * self.hidden[h];
         }
-        outputs[o] = outputs[o].tanh();
+        self.output[o] = sum.tanh();
     }
 
-    // Argmax
-    outputs.iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-        .map(|(idx, _)| idx)
-        .unwrap()
+    &self.output
 }
 ```
 

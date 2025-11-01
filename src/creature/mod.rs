@@ -53,7 +53,7 @@ impl Creature {
         self.metabolism.is_alive()
     }
 
-    pub fn decide_action(&self, inputs: &[f64]) -> Action {
+    pub fn decide_action(&mut self, inputs: &[f64]) -> Action {
         self.brain.decide_action(inputs)
     }
 
@@ -70,8 +70,8 @@ impl Creature {
     }
 
     pub fn can_reproduce(&self, min_energy: f64, current_tick: u64, cooldown: u64) -> bool {
-        self.metabolism.can_afford(min_energy) &&
-        (current_tick - self.last_reproduce_tick) >= cooldown
+        self.metabolism.can_afford(min_energy)
+            && (current_tick - self.last_reproduce_tick) >= cooldown
     }
 
     pub fn record_damage(&mut self, damage: f64) {
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn test_creature_decide_action() {
         let genome = Genome::random(100);
-        let creature = Creature::new(1, 10, 20, genome, 100.0, 200.0, (8, 6, 4));
+        let mut creature = Creature::new(1, 10, 20, genome, 100.0, 200.0, (8, 6, 4));
 
         let inputs = vec![0.5, 0.3, 0.1, 0.9, 0.2, 0.7, 0.4, 0.6];
         let action = creature.decide_action(&inputs);

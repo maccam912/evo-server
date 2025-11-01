@@ -90,7 +90,7 @@ async fn handle_websocket(socket: WebSocket, app_state: AppState) {
                 let metrics = state.metrics();
                 let creatures = state.creatures_vec();
 
-                let message = ServerMessage::update(metrics, creatures);
+                let message = ServerMessage::update(metrics, &state.world, creatures);
 
                 if let Ok(json) = serde_json::to_string(&message) {
                     if sender.send(axum::extract::ws::Message::Text(json)).await.is_err() {

@@ -10,6 +10,7 @@ pub enum ServerMessage {
     Update {
         metrics: SimulationMetrics,
         creatures: Vec<CreatureSnapshot>,
+        food: Vec<FoodSnapshot>,
     },
     #[serde(rename = "world_region")]
     WorldRegion {
@@ -87,11 +88,33 @@ pub enum ClientMessage {
 }
 
 impl ServerMessage {
-    pub fn update(metrics: SimulationMetrics, creatures: Vec<Creature>) -> Self {
+    pub fn update(metrics: SimulationMetrics, world: &World, creatures: Vec<Creature>) -> Self {
         let snapshots = creatures.iter().map(CreatureSnapshot::from).collect();
+
+        // Collect food snapshots from the world
+        let mut food = Vec::new();
+        for y in 0..world.height() {
+            for x in 0..world.width() {
+                if let Some(cell) = world.get(x, y) {
+                    if cell.is_food() {
+                        let amount = cell.food_amount();
+                        if amount > 0 {
+                            food.push(FoodSnapshot {
+                                x,
+                                y,
+                                amount,
+                                is_meat: cell.is_meat(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         ServerMessage::Update {
             metrics,
             creatures: snapshots,
+            food,
         }
     }
 

@@ -118,6 +118,7 @@ function handleCreatureUpdate(message) {
 function handleUpdate(message) {
     AppState.metrics = message.metrics || {};
     AppState.creatures = message.creatures || [];
+    AppState.food = message.food || [];
 
     // Update UI
     if (window.updateUI) {
